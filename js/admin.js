@@ -182,7 +182,7 @@
       A.total = count || 0;
 
       if (!data || !data.length) {
-        list.innerHTML = emptyState('لا توجد استشارات بعد', 'أنشئ أول استشارة من تبويب «إنشاء استشارة»');
+        list.innerHTML = emptyState('لا توجد استشارات أو طلبات عروض بعد', 'أنشئ أول استشارة من تبويب «إنشاء استشارة»');
         pager.innerHTML = '';
         return;
       }
