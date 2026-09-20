@@ -8,7 +8,7 @@ window.TENDER_CONFIG = {
   SUPABASE_URL: "https://oxlrqapdxlivjzgrupxd.supabase.co",
   // مفتاح publishable (آمن للاستخدام في المتصفح)
   SUPABASE_ANON_KEY: "sb_publishable_eo_EaZoxJ7FnfzKkcbEbGQ_iyD0wmos",
-  // رابط الموقع المنشور — يُستخدم في روابط QR دائمًا
-  // (حتى لو أنشأت الاستشارات من نسخة محلية، الـ QR سيشير للموقع العام)
-  PUBLIC_BASE_URL: "https://binomohamza.github.io/tender-portal",
+  // رابط الموقع العام — يُولَّد منه روابط QR دائمًا
+  // (المتعامل يمسح QR → يفتح هذا الموقع العام، لا موقعك المحلي)
+  PUBLIC_BASE_URL: "https://binomohamza.github.io/tender-portal-site",
 };
