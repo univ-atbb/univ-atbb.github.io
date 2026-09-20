@@ -54,6 +54,10 @@
       if (file.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
       if (file.size > 10 * 1024 * 1024) return toast('حجم الملف يتجاوز 10MB', 'error');
 
+      // تحقق مسبق: هل الرقم مستخدم؟
+      const dup = await DB.from('tenders').select('id').eq('reference', ref.trim()).maybeSingle();
+      if (dup.data) return toast('⚠️ رقم الاستشارة "' + ref.trim() + '" موجود بالفعل — اختر رقمًا آخر', 'error', 5000);
+
       const btn = $('create-btn');
       setBusy(btn, true, '⏳ جارٍ الرفع والنشر...');
       try {
@@ -91,7 +95,13 @@
         });
       } catch (err) {
         console.error(err);
-        toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+        if (String((err && err.message) || '').includes('duplicate key')) {
+          toast('⚠️ رقم الاستشارة مستخدم بالفعل — اختر رقمًا آخر', 'error', 5000);
+        } else if (String((err && err.message) || '').includes('storage')) {
+          toast('فشل رفع الملف — تأكد من الحجم (10MB كحد أقصى) وحاول مجددًا', 'error', 5000);
+        } else {
+          toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+        }
       } finally {
         setBusy(btn, false, '🚀 نشر وتوليد QR');
       }
