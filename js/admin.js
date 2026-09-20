@@ -13,6 +13,7 @@
   A.init = function () {
     bindCreate();
     bindStaticButtons();
+    bindAccounts();
     const s = $('tender-search');
     if (s) s.addEventListener('input', debounce(() => { A.page = 1; A.loadTenders(); }, 300));
     A.page = 1;
@@ -344,6 +345,92 @@
     } finally {
       setBusy(btn, false, '🔓 تأكيد الفتح والحذف النهائي');
     }
+  }
+
+  /* ---------- إدارة الحسابات ---------- */
+
+  function bindAccounts() {
+    const form = $('account-form');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const full_name = $('a-name').value.trim();
+      const email = $('a-email').value.trim();
+      const password = $('a-pass').value;
+      if (!full_name || !email || !password) return toast('أكمل جميع الحقول', 'error');
+      if (password.length < 8) return toast('كلمة المرور: 8 أحرف على الأقل', 'error');
+      const btn = form.querySelector('button[type=submit]');
+      setBusy(btn, true, '⏳ جارٍ الإضافة...');
+      try {
+        const { data, error } = await DB.functions.invoke('manage-users', {
+          body: { action: 'create', full_name, email, password },
+        });
+        if (error) throw error;
+        if (!data || data.error) {
+          const msg =
+            data.error === 'weak_password' ? 'كلمة المرور ضعيفة (8 أحرف على الأقل)'
+            : data.error === 'bad_email' ? 'بريد غير صالح'
+            : data.error;
+          throw new Error(msg);
+        }
+        toast('✅ أُضيف الحساب — يمكنه الدخول فورًا', 'success');
+        form.reset();
+        A.refreshAccounts();
+      } catch (err) {
+        console.error(err);
+        toast('فشل: ' + ((err && err.message) || err), 'error', 5000);
+      } finally {
+        setBusy(btn, false, '➕ إضافة الحساب');
+      }
+    });
+  }
+
+  A.refreshAccounts = async function () {
+    const list = $('accounts-list');
+    if (!list) return;
+    list.innerHTML = '<div class="text-center text-slate-400 text-sm py-6">⏳ جارٍ التحميل...</div>';
+    try {
+      const { data, error } = await DB.functions.invoke('manage-users', { body: { action: 'list' } });
+      if (error) throw error;
+      if (!data || !data.users) throw new Error((data && data.error) || 'فشل الجلب');
+      if (!data.users.length) {
+        list.innerHTML = emptyState('لا توجد حسابات', '');
+        return;
+      }
+      list.innerHTML = data.users.map(accountCard).join('');
+      list.querySelectorAll('[data-del]').forEach((b) =>
+        b.addEventListener('click', () => deleteAccount(b.dataset.del, b.dataset.email))
+      );
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = errorState(err);
+    }
+  };
+
+  function accountCard(u) {
+    return (
+      '<div class="bg-white rounded-xl border border-slate-200 p-3 flex items-center justify-between gap-2">' +
+      '<div class="min-w-0">' +
+      '<div class="font-bold text-sm text-slate-800">' + esc(u.full_name || u.email) +
+      (u.is_you ? ' <span class="text-[10px] text-teal-600 font-bold">(أنت)</span>' : '') + '</div>' +
+      '<div class="text-xs text-slate-400" dir="ltr">' + esc(u.email) + '</div>' +
+      '<div class="text-[10px] text-slate-400 mt-0.5">صلاحيات كاملة • أُنشئ ' + fmtDate(u.created_at) + '</div>' +
+      '</div>' +
+      (u.is_you
+        ? ''
+        : '<button data-del="' + u.id + '" data-email="' + esc(u.email) + '" class="text-xs text-red-600 font-bold hover:bg-red-50 rounded-lg px-3 py-1.5 whitespace-nowrap">حذف</button>') +
+      '</div>'
+    );
+  }
+
+  function deleteAccount(id, email) {
+    if (!confirm('حذف حساب "' + email + '"؟ سيفقد الدخول فورًا ولا يمكن التراجع.')) return;
+    DB.functions.invoke('manage-users', { body: { action: 'delete', id } }).then(({ data, error }) => {
+      if (error) return toast('فشل الحذف: ' + (error.message || error), 'error', 5000);
+      if (data && data.error === 'cannot_delete_self') return toast('لا يمكن حذف حسابك الحالي', 'error');
+      toast('✅ حُذف الحساب', 'success');
+      A.refreshAccounts();
+    });
   }
 
   /* ---------- ترقيم الصفحات ---------- */

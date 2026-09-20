@@ -16,8 +16,6 @@
 
     const form = $('login-form');
     if (form) form.addEventListener('submit', onLogin);
-    const su = $('signup-btn');
-    if (su) su.addEventListener('click', onSignup);
     const lo = $('logout-btn');
     if (lo) lo.addEventListener('click', () => DB.auth.signOut());
   };
@@ -50,24 +48,6 @@
             : 'فشل الدخول: ' + error.message;
         toast(msg, 'error', 5000);
       }
-    });
-  }
-
-  function onSignup() {
-    const email = $('login-email').value.trim();
-    const password = $('login-password').value;
-    if (!email || !password) return toast('أدخل البريد وكلمة المرور أولًا', 'error');
-    if (password.length < 8) return toast('كلمة المرور: 8 أحرف على الأقل', 'error');
-    const btn = $('signup-btn');
-    setBusy(btn, true, '⏳ جارٍ الإنشاء...');
-    DB.auth.signUp({ email, password }).then(({ error }) => {
-      setBusy(btn, false, 'إنشاء حساب جديد (أول مرة)');
-      if (error) return toast('فشل: ' + error.message, 'error', 5000);
-      toast(
-        '✅ تم إنشاء الحساب. إذا وصلك بريد تأكيد من Supabase: افتحه واضغط الرابط ثم ادخل. وإلا ادخل مباشرة.',
-        'success',
-        9000
-      );
     });
   }
 })();
