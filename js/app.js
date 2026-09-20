@@ -1,6 +1,7 @@
-/* ===== نقطة الدخول: توجيه ذكي + النوافذ ===== */
+/* ===== نقطة الدخول: توجيه ذكي + المصادقة + النوافذ ===== */
 (function () {
   const $ = (id) => document.getElementById(id);
+  let adminStarted = false;
 
   /* ---------- تبديل التبويبات ---------- */
   window.switchTo = function (id) {
@@ -26,6 +27,13 @@
         if (target === 'tab-tenders') window.Admin.refreshTenders();
       });
     });
+  }
+
+  function startAdminApp() {
+    if (adminStarted) return;
+    adminStarted = true;
+    initBottomNav();
+    window.Admin.init();
   }
 
   /* ---------- إغلاق النوافذ المنبثقة ---------- */
@@ -64,14 +72,14 @@
     initModals();
 
     if (token) {
-      // صفحة المتعامل: نظيفة، بدون تبويبات
+      // صفحة المتعامل: عامة، بدون تسجيل دخول
       $('page-download').classList.remove('hidden');
       window.DownloadPage.init(token);
     } else {
-      // لوحة المدير
+      // لوحة المدير: خلف تسجيل الدخول
       $('page-admin').classList.remove('hidden');
-      initBottomNav();
-      window.Admin.init();
+      window.Auth.onAuthed = startAdminApp;
+      window.Auth.init();
     }
   }
 

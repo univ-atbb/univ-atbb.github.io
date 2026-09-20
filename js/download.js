@@ -1,13 +1,12 @@
-/* ===== صفحة المتعامل (?open=UUID) ===== */
+/* ===== صفحة المتعامل (?open=UUID) — عبر دالة خادم Supabase ===== */
 (function () {
   const D = (window.DownloadPage = {});
-  const TOKEN_TTL_MS = 10 * 60 * 1000; // 10 دقائق
 
   let token = null;
   let tender = null;
   let signed = { expiresAt: 0 };
   let cachedBlob = null;
-  let lastCompany = '';
+  let lastInfo = null;
   let expiryTimer = null;
 
   const $ = (id) => document.getElementById(id);
@@ -18,9 +17,11 @@
     token = t;
     tender = null;
     cachedBlob = null;
+    lastInfo = null;
     renderLoading();
     try {
-      const { data, error } = await DB.from('tenders').select('*').eq('id', t).maybeSingle();
+      // العرض العام: بدون مسار الملف
+      const { data, error } = await DB.from('tenders_public').select('*').eq('id', t).maybeSingle();
       if (error) throw error;
       if (!data) return renderNotFound();
       tender = data;
@@ -65,20 +66,22 @@
     root().innerHTML = shell(
       '<div class="text-center py-6">' +
       '<div class="text-5xl mb-4">🔒</div>' +
-      '<h2 class="font-black text-slate-800 mb-2">' + (tender.status === 'opened' ? 'تم فتح الأظرفة' : 'الاستشارة مغلقة') + '</h2>' +
-      '<p class="text-sm text-slate-500 leading-relaxed">انتهت فترة تحميل دفتر الشروط لهذه الاستشارة' +
-      (tender.opened_at ? ' (' + esc(fmtDate(tender.opened_at, true)) + ')' : '') +
-      '، وحُذف الملف من الخادم.</p>' +
+      '<h2 class="font-black text-slate-800 mb-2">تم فتح الأظرفة</h2>' +
+      '<p class="text-sm text-slate-500 leading-relaxed">انتهت فترة تحميل دفتر الشروط لهذه الاستشارة، وحُذف الملف من الخادم.</p>' +
       '</div>'
     );
   }
 
   function renderError(err, retryable) {
+    let msg = (err && err.message) || String(err);
+    if (msg.includes('get-download') || msg.includes('function')) {
+      msg = 'خدمة التحميل غير مفعلة حاليًا — تواصل مع مكتب الصفقات.';
+    }
     root().innerHTML = shell(
       '<div class="text-center py-6">' +
       '<div class="text-5xl mb-4">😕</div>' +
       '<h2 class="font-black text-slate-800 mb-2">حدث خطأ</h2>' +
-      '<p class="text-sm text-slate-500 mb-4">' + esc((err && err.message) || String(err)) + '</p>' +
+      '<p class="text-sm text-slate-500 mb-4">' + esc(msg) + '</p>' +
       (retryable ? '<button id="retry-btn" class="btn-secondary">🔄 إعادة المحاولة</button>' : '') +
       '</div>'
     );
@@ -124,7 +127,7 @@
       '<div class="text-center py-4">' +
       '<div class="text-5xl mb-3">✅</div>' +
       '<h2 class="font-black text-slate-800 mb-1">تم التحميل بنجاح</h2>' +
-      '<p class="text-sm text-slate-500 mb-4">سُجِّلت بيانات <b>' + esc(lastCompany) + '</b> في سجل التحميلات.</p>' +
+      '<p class="text-sm text-slate-500 mb-4">سُجِّلت بيانات <b>' + esc(lastInfo.company) + '</b> في سجل التحميلات.</p>' +
       '<div class="bg-slate-50 rounded-xl p-3 mb-4">' +
       '<div class="text-xs text-slate-400 mb-1">صلاحية الرابط المؤقت تنتهي خلال</div>' +
       '<div id="expiry-cd" class="text-xl font-black text-teal-700 tabular-nums"></div>' +
@@ -147,7 +150,7 @@
     }, 1000);
   }
 
-  /* ---------- منطق التحميل ---------- */
+  /* ---------- منطق التحميل (عبر دالة الخادم) ---------- */
 
   function onFormSubmit(e) {
     e.preventDefault();
@@ -159,23 +162,39 @@
     startDownload({ company, phone, email });
   }
 
-  async function startDownload(info) {
-    lastCompany = info.company;
-    renderWorking('جارٍ تسجيل بياناتك...');
-    try {
-      const ip = await getIpSafe();
-      const { error: dErr } = await DB.from('downloads').insert({
+  async function fetchViaFunction(info) {
+    const { data, error } = await DB.functions.invoke('get-download', {
+      body: {
         tender_id: tender.id,
         company: info.company,
         phone: info.phone,
         email: info.email,
-        ip_address: ip,
-        user_agent: (navigator.userAgent || '').slice(0, 500),
-      });
-      if (dErr) throw dErr;
+      },
+    });
+    if (error) {
+      if (String(error.message || error).includes('get-download')) {
+        throw new Error('خدمة التحميل غير مفعلة (get-download)');
+      }
+      throw error;
+    }
+    if (!data || !data.url) {
+      if (data && data.error === 'unavailable') {
+        throw new Error('الاستشارة لم تعد متاحة — ربما تم فتح الأظرفة');
+      }
+      throw new Error('تعذر تجهيز رابط التحميل');
+    }
+    signed = { url: data.url, expiresAt: Date.now() + (data.expires_in || 600) * 1000 };
 
-      renderWorking('جارٍ تجهيز الملف...');
-      cachedBlob = await fetchPdf();
+    const res = await fetch(signed.url);
+    if (!res.ok) throw new Error('تعذر جلب الملف (' + res.status + ')');
+    return new Blob([await res.arrayBuffer()], { type: 'application/pdf' });
+  }
+
+  async function startDownload(info) {
+    lastInfo = info;
+    renderWorking('جارٍ تسجيل بياناتك وتجهيز الملف...');
+    try {
+      cachedBlob = await fetchViaFunction(info);
       const filename = 'دفتر-الشروط_' + tender.reference + '.pdf';
       downloadBlob(cachedBlob, filename);
       renderDone();
@@ -185,18 +204,8 @@
     }
   }
 
-  async function fetchPdf() {
-    const { data: s, error: sErr } = await DB.storage.from('tenders').createSignedUrl(tender.pdf_path, 600);
-    if (sErr || !s) throw sErr || new Error('تعذر إنشاء رابط التحميل');
-    signed = { url: s.signedUrl, expiresAt: Date.now() + TOKEN_TTL_MS };
-
-    const res = await fetch(signed.url);
-    if (!res.ok) throw new Error('تعذر جلب الملف (' + res.status + ')');
-    return new Blob([await res.arrayBuffer()], { type: 'application/pdf' });
-  }
-
   D.redownload = async function () {
-    if (!tender) return;
+    if (!tender || !lastInfo) return;
     try {
       if (cachedBlob && Date.now() < signed.expiresAt - 30000) {
         downloadBlob(cachedBlob, 'دفتر-الشروط_' + tender.reference + '.pdf');
@@ -204,13 +213,13 @@
         return;
       }
       renderWorking('جارٍ توليد رابط جديد...');
-      cachedBlob = await fetchPdf();
+      cachedBlob = await fetchViaFunction(lastInfo);
       downloadBlob(cachedBlob, 'دفتر-الشروط_' + tender.reference + '.pdf');
       renderDone();
     } catch (err) {
       console.error(err);
       toast('تعذر التحميل: ' + ((err && err.message) || err), 'error', 6000);
-      D.init(token); // إعادة التحقق من الحالة
+      D.init(token);
     }
   };
 })();
