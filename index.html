@@ -102,6 +102,13 @@
           <h2 class="font-black text-slate-800 mb-1">📝 إنشاء استشارة / طلب عروض</h2>
           <p class="text-xs text-slate-400 mb-4">بعد النشر مباشرةً ستظهر بطاقة QR الجاهزة للطباعة والتسليم للمتعامل.</p>
           <form id="create-form" class="space-y-4">
+            <div>
+              <label class="lbl">نوع الصفقة *</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="kind-opt"><input type="radio" name="f-kind" value="consultation" class="sr-only" checked>📄 استشارة</label>
+                <label class="kind-opt"><input type="radio" name="f-kind" value="tender" class="sr-only">📋 طلب عروض</label>
+              </div>
+            </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="lbl" for="f-reference">رقم الاستشارة *</label>
@@ -188,7 +195,7 @@
       <div id="qr-card" class="p-6 text-center">
         <div class="text-xs font-bold text-slate-400 tracking-wide mb-1">مكتب الصفقات الجامعية</div>
         <div class="text-[11px] text-slate-400 mb-4">قسيمة تحميل دفتر الشروط</div>
-        <div class="font-black text-slate-800 text-lg">استشارة عدد: <span id="qr-reference"></span></div>
+        <div class="font-black text-slate-800 text-lg"><span id="qr-kind">استشارة</span> عدد: <span id="qr-reference"></span></div>
         <div id="qr-title" class="text-sm text-slate-600 mt-1 mb-4"></div>
         <canvas id="qr-canvas" class="mx-auto rounded-lg border border-slate-200 bg-white"></canvas>
         <div class="grid grid-cols-2 gap-2 text-xs text-slate-600 mt-4">

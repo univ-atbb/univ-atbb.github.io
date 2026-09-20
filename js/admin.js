@@ -9,6 +9,7 @@
 
   const $ = (id) => document.getElementById(id);
   const val = (id) => ($(id) ? $(id).value : '');
+  const kindLabel = (k) => (k === 'tender' ? 'طلب عروض' : 'استشارة');
 
   A.init = function () {
     bindCreate();
@@ -50,6 +51,8 @@
       const duration = val('f-duration');
       const opening = val('f-opening');
       const file = $('f-file').files[0];
+      const kindEl = document.querySelector('input[name="f-kind"]:checked');
+      const kind = kindEl ? kindEl.value : 'consultation';
 
       if (!ref.trim() || !title.trim() || !opening || !file) return toast('أكمل جميع الحقول المطلوبة', 'error');
       if (file.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
@@ -83,6 +86,7 @@
             body: {
               action: 'finalize-upload',
               tender_id: tenderId,
+              kind,
               reference: ref.trim(),
               title: title.trim(),
               duration: duration.trim(),
@@ -109,6 +113,7 @@
 
           const { error: insErr } = await DB.from('tenders').insert({
             id: tenderId,
+            kind,
             reference: ref.trim(),
             title: title.trim(),
             duration: duration.trim() || null,
@@ -198,7 +203,9 @@
       '<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">' +
       '<div class="flex items-start justify-between gap-3">' +
       '<div class="min-w-0">' +
-      '<div class="font-bold text-slate-800">' + esc(t.reference) + '</div>' +
+      '<div class="font-bold text-slate-800 flex items-center gap-2 flex-wrap">' + esc(t.reference) +
+      '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ' + (t.kind === 'tender' ? 'bg-indigo-50 text-indigo-700' : 'bg-teal-50 text-teal-700') + '">' + kindLabel(t.kind) + '</span>' +
+      '</div>' +
       '<div class="text-sm text-slate-600 mt-0.5">' + esc(t.title) + '</div>' +
       '</div>' +
       statusBadge(t.status) +
@@ -242,6 +249,7 @@
   /* ---------- بطاقة QR ---------- */
 
   A.showQR = function (t) {
+    $('qr-kind').textContent = kindLabel(t.kind);
     $('qr-reference').textContent = t.reference;
     $('qr-title').textContent = t.title;
     $('qr-duration').textContent = t.duration || '—';

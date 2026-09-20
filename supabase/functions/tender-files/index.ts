@@ -190,6 +190,7 @@ Deno.serve(async (req) => {
 
     /* ----- 2) النشر بعد نجاح الرفع ----- */
     if (action === 'finalize-upload') {
+      const kind = String(body.kind || 'consultation') === 'tender' ? 'tender' : 'consultation';
       const reference = String(body.reference || '').trim();
       const title = String(body.title || '').trim();
       const duration = String(body.duration || '').trim() || null;
@@ -206,6 +207,7 @@ Deno.serve(async (req) => {
 
       const { error: insErr } = await db.from('tenders').insert({
         id: tenderId,
+        kind,
         reference,
         title,
         duration,
