@@ -6,6 +6,8 @@
   let dlPage = 1;
   let dlTotal = 0;
   let openTender = null;
+  let replaceTender = null;
+  let deleteTender = null;
 
   const $ = (id) => document.getElementById(id);
   const val = (id) => ($(id) ? $(id).value : '');
@@ -163,6 +165,15 @@
     if (printBtn) printBtn.addEventListener('click', () => window.print());
     const openBtn = $('open-confirm-btn');
     if (openBtn) openBtn.addEventListener('click', confirmOpen);
+    const replaceBtn = $('replace-confirm-btn');
+    if (replaceBtn) replaceBtn.addEventListener('click', confirmReplace);
+    const deleteBtn = $('delete-confirm-btn');
+    if (deleteBtn) deleteBtn.addEventListener('click', confirmDelete);
+    const replaceFile = $('replace-file');
+    if (replaceFile) replaceFile.addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      $('replace-file-info').textContent = f ? f.name + ' — ' + (f.size / 1024 / 1024).toFixed(2) + ' MB' : '';
+    });
   }
 
   /* ---------- قائمة الاستشارات ---------- */
@@ -221,12 +232,14 @@
       '<div class="text-slate-700 font-bold">' + dl + '</div>' +
       '</div>' +
       '</div>' +
-      '<div class="mt-3 flex gap-2 flex-wrap">' +
-      '<button data-act="qr" data-id="' + t.id + '" class="flex-1 btn-secondary min-w-[120px]">🔳 بطاقة QR</button>' +
-      '<button data-act="downloads" data-id="' + t.id + '" class="flex-1 btn-secondary min-w-[120px]">👥 من حمّل (' + dl + ')</button>' +
+      '<div class="mt-3 grid grid-cols-2 gap-2">' +
+      '<button data-act="qr" data-id="' + t.id + '" class="w-full btn-secondary">🔳 بطاقة QR</button>' +
+      '<button data-act="downloads" data-id="' + t.id + '" class="w-full btn-secondary">👥 من حمّل (' + dl + ')</button>' +
       (isPub
-        ? '<button data-act="open" data-id="' + t.id + '" class="flex-1 btn-danger min-w-[120px]">🔓 فتح الأظرفة</button>'
+        ? '<button data-act="replace" data-id="' + t.id + '" class="w-full btn-secondary">📄 تغيير دفتر الشروط</button>' +
+          '<button data-act="open" data-id="' + t.id + '" class="w-full btn-danger">🔓 فتح الأظرفة</button>'
         : '') +
+      '<button data-act="delete" data-id="' + t.id + '" class="w-full btn-secondary !text-red-600">🗑️ حذف الاستشارة</button>' +
       '</div>' +
       '</div>'
     );
@@ -243,6 +256,8 @@
       if (btn.dataset.act === 'qr') A.showQR(data);
       else if (btn.dataset.act === 'downloads') A.showDownloads(data);
       else if (btn.dataset.act === 'open') askOpen(data);
+      else if (btn.dataset.act === 'replace') askReplace(data);
+      else if (btn.dataset.act === 'delete') askDelete(data);
     });
   });
 
@@ -426,6 +441,102 @@
     } catch (err2) {
       console.error(err2);
       toast('فشل: ' + ((err2 && err2.message) || err2), 'error', 6000);
+    }
+  }
+
+  /* ---------- تغيير دفتر الشروط (نفس الـ QR) ---------- */
+
+  function askReplace(t) {
+    replaceTender = t;
+    $('replace-tender-info').innerHTML =
+      '<b>' + esc(t.reference) + '</b> — ' + esc(t.title) +
+      '<br><span class="text-xs text-slate-400">يُحذف الملف الحالي ويُرفع الجديد. رمز QR يبقى نفسه.</span>';
+    $('replace-file').value = '';
+    $('replace-file-info').textContent = '';
+    openModal('replace-modal');
+  }
+
+  async function confirmReplace() {
+    const t = replaceTender;
+    if (!t) return;
+    const f = $('replace-file').files[0];
+    if (!f) return toast('اختر ملف PDF الجديد', 'error');
+    if (f.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
+    if (f.size > 50 * 1024 * 1024) return toast('حجم الملف يتجاوز 50MB', 'error');
+
+    const btn = $('replace-confirm-btn');
+    setBusy(btn, true, '⏳ جارٍ الاستبدال...');
+    try {
+      if (t.pdf_source === 'r2') {
+        const prep = await DB.functions.invoke('tender-files', {
+          body: { action: 'prepare-replace', tender_id: t.id },
+        });
+        if (prep.error) throw prep.error;
+        if (!prep.data || !prep.data.upload_url) throw new Error('خدمة R2 غير مهيأة');
+        const put = await fetch(prep.data.upload_url, { method: 'PUT', body: f });
+        if (!put.ok) throw new Error('فشل رفع الملف');
+      } else {
+        const { error } = await DB.storage.from('tenders').upload(t.pdf_path, f, {
+          contentType: 'application/pdf',
+          upsert: true,
+        });
+        if (error) throw error;
+      }
+      closeModal('replace-modal');
+      toast('✅ تم استبدال الملف — رمز QR نفسه ما زال صالحًا', 'success', 5000);
+      A.refreshTenders();
+    } catch (err) {
+      console.error(err);
+      toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+    } finally {
+      setBusy(btn, false, '📤 استبدال الملف');
+    }
+  }
+
+  /* ---------- حذف الاستشارة ---------- */
+
+  function askDelete(t) {
+    deleteTender = t;
+    $('delete-tender-info').innerHTML =
+      '<b>' + esc(t.reference) + '</b> — ' + esc(t.title) +
+      '<br><span class="text-xs text-slate-400">' +
+      (t.status === 'published' ? 'الاستشارة منشورة — سيُحذف الملف وكل سجل التحميلات.' : 'فُتحت مسبقًا — سيُحذف كل شيء (الملف محذوف أصلًا).') +
+      '</span>';
+    $('delete-ref-input').value = '';
+    openModal('delete-modal');
+    setTimeout(() => $('delete-ref-input').focus(), 100);
+  }
+
+  async function confirmDelete() {
+    const t = deleteTender;
+    if (!t) return;
+    if (val('delete-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
+
+    const btn = $('delete-confirm-btn');
+    setBusy(btn, true, '⏳ جارٍ الحذف...');
+    try {
+      if (t.pdf_source === 'r2') {
+        const { data, error } = await DB.functions.invoke('tender-files', {
+          body: { action: 'delete-tender', tender_id: t.id },
+        });
+        if (error) throw error;
+        if (!data || !data.ok) throw new Error((data && data.error) || 'فشل الحذف');
+      } else {
+        if (t.pdf_path) {
+          const { error: delErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
+          if (delErr) console.warn('تنبيه: ملف التخزين:', delErr.message || delErr);
+        }
+        const { error } = await DB.from('tenders').delete().eq('id', t.id);
+        if (error) throw error;
+      }
+      closeModal('delete-modal');
+      toast('✅ حُذفت الاستشارة نهائيًا', 'success', 5000);
+      A.refreshTenders();
+    } catch (err) {
+      console.error(err);
+      toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+    } finally {
+      setBusy(btn, false, '🗑️ تأكيد الحذف النهائي');
     }
   }
 

@@ -248,6 +248,41 @@
     </div>
   </div>
 
+  <!-- ===== نافذة: تغيير دفتر الشروط ===== -->
+  <div id="replace-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+      <div class="px-5 py-4 bg-primary-700 text-white">
+        <h3 class="font-black">📄 تغيير دفتر الشروط</h3>
+        <p class="text-xs mt-1 text-teal-100 leading-relaxed">يُحذف الملف الحالي ويُرفع الجديد مكانه. رمز QR يبقى نفسه بدون أي تغيير.</p>
+      </div>
+      <div class="p-5">
+        <div id="replace-tender-info" class="text-sm text-slate-600 bg-slate-50 rounded-xl p-3 mb-4"></div>
+        <input id="replace-file" type="file" accept="application/pdf"
+          class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-teal-50 file:text-teal-700 file:font-semibold file:cursor-pointer cursor-pointer">
+        <p id="replace-file-info" class="text-xs text-slate-400 mt-1"></p>
+        <button id="replace-confirm-btn" class="btn-primary w-full mt-4">📤 استبدال الملف</button>
+        <button data-close="replace-modal" class="btn-secondary w-full mt-2">تراجع</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== نافذة: حذف الاستشارة ===== -->
+  <div id="delete-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+      <div class="px-5 py-4 bg-red-600 text-white">
+        <h3 class="font-black">🗑️ حذف الاستشارة</h3>
+        <p class="text-xs mt-1 text-red-100 leading-relaxed">سيُحذف ملف دفتر الشروط (إن وُجد) مع الاستشارة وجميع سجل تحميلاتها. لا يمكن التراجع.</p>
+      </div>
+      <div class="p-5">
+        <div id="delete-tender-info" class="text-sm text-slate-600 bg-slate-50 rounded-xl p-3 mb-4"></div>
+        <label class="lbl" for="delete-ref-input">اكتب رقم الاستشارة للتأكيد</label>
+        <input id="delete-ref-input" class="inp" autocomplete="off">
+        <button id="delete-confirm-btn" class="btn-danger w-full mt-4">🗑️ تأكيد الحذف النهائي</button>
+        <button data-close="delete-modal" class="btn-secondary w-full mt-2">تراجع</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== التنبيهات ===== -->
   <div id="toasts" class="fixed top-4 inset-x-0 z-[60] flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
 

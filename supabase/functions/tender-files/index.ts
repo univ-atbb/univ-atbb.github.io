@@ -277,6 +277,43 @@ Deno.serve(async (req) => {
       return json({ ok: true });
     }
 
+    /* ----- 5) تجهيز استبدال ملف استشارة (نفس المفتاح → نفس QR) ----- */
+    if (action === 'prepare-replace') {
+      if (!tenderId) return json({ error: 'bad_request' }, 400);
+      const { data: t, error: tErr } = await db
+        .from('tenders')
+        .select('*')
+        .eq('id', tenderId)
+        .maybeSingle();
+      if (tErr || !t) return json({ error: 'not_found' }, 404);
+      if (t.status !== 'published' || t.pdf_source !== 'r2') return json({ error: 'bad_state' }, 409);
+      const cfg = await r2Config(db);
+      const uploadUrl = await presignUrl('PUT', { ...cfg, key: t.pdf_path }, 1800);
+      return json({ upload_url: uploadUrl });
+    }
+
+    /* ----- 6) حذف استشارة (الملف + الصف + سجلات التحميل) ----- */
+    if (action === 'delete-tender') {
+      if (!tenderId) return json({ error: 'bad_request' }, 400);
+      const { data: t, error: tErr } = await db
+        .from('tenders')
+        .select('*')
+        .eq('id', tenderId)
+        .maybeSingle();
+      if (tErr || !t) return json({ error: 'not_found' }, 404);
+      try {
+        if (t.pdf_source === 'r2' && t.pdf_path) {
+          const cfg = await r2Config(db);
+          await signedRequest('DELETE', { ...cfg, key: t.pdf_path }).catch(() => {});
+        }
+      } catch (e) {
+        console.warn('delete file warn:', e);
+      }
+      const { error: delErr } = await db.from('tenders').delete().eq('id', tenderId);
+      if (delErr) return json({ error: delErr.message }, 500);
+      return json({ ok: true });
+    }
+
     return json({ error: 'unknown_action' }, 400);
   } catch (err: any) {
     if (String((err && err.message) || err) === 'r2_not_configured') {
