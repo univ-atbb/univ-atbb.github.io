@@ -1,0 +1,361 @@
+/* ===== لوحة المدير: إنشاء + قائمة + QR + سجل التحميلات + فتح الأظرفة ===== */
+(function () {
+  const PAGE_SIZE = 20;
+  const A = (window.Admin = {});
+  let dlTender = null;
+  let dlPage = 1;
+  let dlTotal = 0;
+  let openTender = null;
+
+  const $ = (id) => document.getElementById(id);
+  const val = (id) => ($(id) ? $(id).value : '');
+
+  A.init = function () {
+    bindCreate();
+    bindStaticButtons();
+    const s = $('tender-search');
+    if (s) s.addEventListener('input', debounce(() => { A.page = 1; A.loadTenders(); }, 300));
+    A.page = 1;
+    A.loadTenders();
+  };
+
+  A.refreshTenders = function () {
+    A.loadTenders();
+  };
+
+  function debounce(fn, ms) {
+    let t;
+    return (...a) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...a), ms);
+    };
+  }
+
+  /* ---------- إنشاء استشارة ---------- */
+
+  function bindCreate() {
+    const form = $('create-form');
+    if (!form) return;
+
+    $('f-file').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      $('file-info').textContent = f ? f.name + ' — ' + (f.size / 1024 / 1024).toFixed(2) + ' MB' : '';
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const ref = val('f-reference');
+      const title = val('f-title');
+      const duration = val('f-duration');
+      const opening = val('f-opening');
+      const file = $('f-file').files[0];
+
+      if (!ref.trim() || !title.trim() || !opening || !file) return toast('أكمل جميع الحقول المطلوبة', 'error');
+      if (file.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
+      if (file.size > 10 * 1024 * 1024) return toast('حجم الملف يتجاوز 10MB', 'error');
+
+      const btn = $('create-btn');
+      setBusy(btn, true, '⏳ جارٍ الرفع والنشر...');
+      try {
+        const id = crypto.randomUUID();
+        const pdfPath = 'tenders/' + id + '.pdf';
+
+        const { error: upErr } = await DB.storage.from('tenders').upload(pdfPath, file, {
+          contentType: 'application/pdf',
+        });
+        if (upErr) throw upErr;
+
+        const { error: insErr } = await DB.from('tenders').insert({
+          id,
+          reference: ref.trim(),
+          title: title.trim(),
+          duration: duration.trim() || null,
+          opening_date: new Date(opening).toISOString(),
+          pdf_path: pdfPath,
+          status: 'published',
+        });
+        if (insErr) throw insErr;
+
+        form.reset();
+        $('file-info').textContent = '';
+        toast('✅ تم النشر — هذه بطاقة QR الجاهزة', 'success');
+        A.page = 1;
+        await A.loadTenders();
+        window.switchTo('tab-tenders');
+        A.showQR({
+          id,
+          reference: ref.trim(),
+          title: title.trim(),
+          duration: duration.trim() || null,
+          opening_date: new Date(opening).toISOString(),
+        });
+      } catch (err) {
+        console.error(err);
+        toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+      } finally {
+        setBusy(btn, false, '🚀 نشر وتوليد QR');
+      }
+    });
+  }
+
+  /* ---------- أزرار ثابتة ---------- */
+
+  function bindStaticButtons() {
+    const csvBtn = $('dl-csv');
+    if (csvBtn) csvBtn.addEventListener('click', exportCsv);
+    const printBtn = $('print-qr-btn');
+    if (printBtn) printBtn.addEventListener('click', () => window.print());
+    const openBtn = $('open-confirm-btn');
+    if (openBtn) openBtn.addEventListener('click', confirmOpen);
+  }
+
+  /* ---------- قائمة الاستشارات ---------- */
+
+  A.loadTenders = async function () {
+    const list = $('tenders-list');
+    const pager = $('tenders-pager');
+    try {
+      const term = (val('tender-search') || '').trim().replace(/[(),]/g, '');
+      let q = DB.from('tenders').select('*, _downloads(count)', { count: 'exact' });
+      if (term) q = q.or('reference.ilike.%' + term + '%,title.ilike.%' + term + '%');
+      const from = (A.page - 1) * PAGE_SIZE;
+      const { data, error, count } = await q
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      A.total = count || 0;
+
+      if (!data || !data.length) {
+        list.innerHTML = emptyState('لا توجد استشارات بعد', 'أنشئ أول استشارة من تبويب «إنشاء استشارة»');
+        pager.innerHTML = '';
+        return;
+      }
+      list.innerHTML = data.map(tenderCard).join('');
+      pager.innerHTML = pagerHtml(A.total, A.page, 'main');
+      bindPager();
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = errorState(err);
+      pager.innerHTML = '';
+    }
+  };
+
+  function tenderCard(t) {
+    const dl = (t._downloads && t._downloads[0] && t._downloads[0].count) || 0;
+    const isPub = t.status === 'published';
+    return (
+      '<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">' +
+      '<div class="flex items-start justify-between gap-3">' +
+      '<div class="min-w-0">' +
+      '<div class="font-bold text-slate-800">' + esc(t.reference) + '</div>' +
+      '<div class="text-sm text-slate-600 mt-0.5">' + esc(t.title) + '</div>' +
+      '</div>' +
+      statusBadge(t.status) +
+      '</div>' +
+      '<div class="mt-3 grid grid-cols-2 gap-2 text-sm">' +
+      '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
+      '<div class="text-xs text-slate-400">فتح الأظرفة</div>' +
+      '<div class="text-slate-700">' + fmtDate(t.opening_date, true) + '</div>' +
+      (t.opened_at ? '<div class="text-xs text-slate-400">فُتحت: ' + fmtDate(t.opened_at, true) + '</div>' : '') +
+      '</div>' +
+      '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
+      '<div class="text-xs text-slate-400">التحميلات</div>' +
+      '<div class="text-slate-700 font-bold">' + dl + '</div>' +
+      '</div>' +
+      '</div>' +
+      '<div class="mt-3 flex gap-2 flex-wrap">' +
+      '<button data-act="qr" data-id="' + t.id + '" class="flex-1 btn-secondary min-w-[120px]">🔳 بطاقة QR</button>' +
+      '<button data-act="downloads" data-id="' + t.id + '" class="flex-1 btn-secondary min-w-[120px]">👥 من حمّل (' + dl + ')</button>' +
+      (isPub
+        ? '<button data-act="open" data-id="' + t.id + '" class="flex-1 btn-danger min-w-[120px]">🔓 فتح الأظرفة</button>'
+        : '') +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  // تفويض نقرات الأزرار في القائمة
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const list = $('tenders-list');
+    if (!list || !list.contains(btn)) return;
+    DB.from('tenders').select('*').eq('id', btn.dataset.id).maybeSingle().then(({ data, error }) => {
+      if (error || !data) return toast('تعذر جلب الاستشارة', 'error');
+      if (btn.dataset.act === 'qr') A.showQR(data);
+      else if (btn.dataset.act === 'downloads') A.showDownloads(data);
+      else if (btn.dataset.act === 'open') askOpen(data);
+    });
+  });
+
+  /* ---------- بطاقة QR ---------- */
+
+  A.showQR = function (t) {
+    $('qr-reference').textContent = t.reference;
+    $('qr-title').textContent = t.title;
+    $('qr-duration').textContent = t.duration || '—';
+    $('qr-opening').textContent = fmtDate(t.opening_date, true);
+
+    const base = location.href.split('?')[0];
+    const url = base + '?open=' + t.id;
+    $('qr-url').textContent = url;
+
+    const canvas = $('qr-canvas');
+    if (typeof window.QRCode === 'undefined') {
+      toast('فشل تحميل مكتبة QR', 'error');
+      return;
+    }
+    window.QRCode.toCanvas(canvas, url, { width: 220, margin: 2, errorCorrectionLevel: 'M' }, (err) => {
+      if (err) {
+        console.error(err);
+        toast('تعذر توليد QR', 'error');
+        return;
+      }
+      openModal('qr-modal');
+    });
+  };
+
+  /* ---------- سجل التحميلات ---------- */
+
+  A.showDownloads = async function (t) {
+    dlTender = t;
+    dlPage = 1;
+    $('dl-title').textContent = 'سجل التحميلات — ' + t.reference;
+    openModal('downloads-modal');
+    await A.loadDownloads();
+  };
+
+  A.loadDownloads = async function () {
+    if (!dlTender) return;
+    const box = $('dl-rows');
+    try {
+      const from = (dlPage - 1) * PAGE_SIZE;
+      const { data, error, count } = await DB.from('downloads')
+        .select('*')
+        .eq('tender_id', dlTender.id)
+        .order('downloaded_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      dlTotal = count || 0;
+
+      if (!data || !data.length) {
+        box.innerHTML = '<div class="text-center text-slate-400 py-8 text-sm">لا توجد تحميلات بعد</div>';
+        $('dl-pager').innerHTML = '';
+        return;
+      }
+      box.innerHTML =
+        '<table class="w-full text-sm">' +
+        '<thead><tr class="text-slate-400 text-xs border-b border-slate-200">' +
+        '<th class="py-2 text-right">الشركة</th><th class="py-2 text-right">الهاتف</th>' +
+        '<th class="py-2 text-right">البريد</th><th class="py-2 text-right">IP</th><th class="py-2 text-right">الوقت</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+        data
+          .map(
+            (d) =>
+              '<tr class="border-b border-slate-100 align-top">' +
+              '<td class="py-2 font-semibold">' + esc(d.company) + '</td>' +
+              '<td class="py-2" dir="ltr">' + esc(d.phone) + '</td>' +
+              '<td class="py-2 break-all" dir="ltr">' + esc(d.email) + '</td>' +
+              '<td class="py-2 text-xs text-slate-400" dir="ltr">' + esc(d.ip_address || '—') + '</td>' +
+              '<td class="py-2 text-xs text-slate-500 whitespace-nowrap">' + fmtDate(d.downloaded_at, true) + '</td>' +
+              '</tr>'
+          )
+          .join('') +
+        '</tbody></table>';
+      $('dl-pager').innerHTML = pagerHtml(dlTotal, dlPage, 'dl');
+      bindPager();
+    } catch (err) {
+      box.innerHTML = errorState(err);
+    }
+  };
+
+  async function exportCsv() {
+    if (!dlTender) return;
+    const { data, error } = await DB.from('downloads')
+      .select('*')
+      .eq('tender_id', dlTender.id)
+      .order('downloaded_at');
+    if (error || !data) return toast('فشل التصدير', 'error');
+    const head = ['company', 'phone', 'email', 'ip_address', 'downloaded_at'];
+    const rows = data.map((d) => head.map((k) => csvCell(d[k])).join(','));
+    const csv = '\uFEFF' + [head.join(','), ...rows].join('\n');
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'downloads_' + dlTender.reference + '.csv');
+  }
+
+  function csvCell(v) {
+    v = String(v == null ? '' : v);
+    return /[",\n]/.test(v) ? '"' + v.replaceAll('"', '""') + '"' : v;
+  }
+
+  /* ---------- فتح الأظرفة + حذف الملف ---------- */
+
+  function askOpen(t) {
+    openTender = t;
+    $('open-tender-info').innerHTML =
+      '<b>' + esc(t.reference) + '</b> — ' + esc(t.title) +
+      '<br><span class="text-xs text-slate-400">فتح الأظرفة: ' + fmtDate(t.opening_date, true) + '</span>';
+    $('open-ref-input').value = '';
+    openModal('open-modal');
+    setTimeout(() => $('open-ref-input').focus(), 100);
+  }
+
+  async function confirmOpen() {
+    const t = openTender;
+    if (!t) return;
+    if (val('open-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
+
+    const btn = $('open-confirm-btn');
+    setBusy(btn, true, '⏳ جارٍ الفتح...');
+    try {
+      // 1) تغيير الحالة إلى opened
+      const { data, error } = await DB.from('tenders')
+        .update({ status: 'opened', opened_at: new Date().toISOString(), opened_by: null })
+        .eq('id', t.id)
+        .eq('status', 'published')
+        .select('id');
+      if (error) throw error;
+      if (!data || !data.length) throw new Error('تعذر التحديث (ربما تم فتحها مسبقًا)');
+
+      // 2) حذف PDF نهائيًا من التخزين
+      if (t.pdf_path) {
+        const { error: delErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
+        if (delErr) console.warn('تنبيه: حُدثت الحالة لكن ملف التخزين:', delErr.message || delErr);
+      }
+
+      closeModal('open-modal');
+      toast('✅ تم فتح الأظرفة وحذف الملف نهائيًا', 'success', 5000);
+      A.refreshTenders();
+    } catch (err) {
+      console.error(err);
+      toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+    } finally {
+      setBusy(btn, false, '🔓 تأكيد الفتح والحذف النهائي');
+    }
+  }
+
+  /* ---------- ترقيم الصفحات ---------- */
+
+  function pagerHtml(total, page, prefix) {
+    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    if (pages <= 1) return '';
+    return (
+      '<div class="flex items-center justify-center gap-3 mt-4 text-sm">' +
+      '<button id="pager-' + prefix + '-prev" ' + (page <= 1 ? 'disabled' : '') + ' class="btn-secondary px-3 py-1.5">السابق</button>' +
+      '<span class="text-slate-500">صفحة ' + page + ' من ' + pages + ' (' + total + ')</span>' +
+      '<button id="pager-' + prefix + '-next" ' + (page >= pages ? 'disabled' : '') + ' class="btn-secondary px-3 py-1.5">التالي</button>' +
+      '</div>'
+    );
+  }
+
+  function bindPager() {
+    const pm = $('pager-main-prev');
+    const pn = $('pager-main-next');
+    if (pm) pm.addEventListener('click', () => { A.page--; A.loadTenders(); });
+    if (pn) pn.addEventListener('click', () => { A.page++; A.loadTenders(); });
+    const dm = $('pager-dl-prev');
+    const dn = $('pager-dl-next');
+    if (dm) dm.addEventListener('click', () => { dlPage--; A.loadDownloads(); });
+    if (dn) dn.addEventListener('click', () => { dlPage++; A.loadDownloads(); });
+  }
+})();
