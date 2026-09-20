@@ -126,7 +126,7 @@
     const pager = $('tenders-pager');
     try {
       const term = (val('tender-search') || '').trim().replace(/[(),]/g, '');
-      let q = DB.from('tenders').select('*, _downloads(count)', { count: 'exact' });
+      let q = DB.from('tenders').select('*, downloads(count)', { count: 'exact' });
       if (term) q = q.or('reference.ilike.%' + term + '%,title.ilike.%' + term + '%');
       const from = (A.page - 1) * PAGE_SIZE;
       const { data, error, count } = await q
@@ -151,7 +151,7 @@
   };
 
   function tenderCard(t) {
-    const dl = (t._downloads && t._downloads[0] && t._downloads[0].count) || 0;
+    const dl = (t.downloads && t.downloads[0] && t.downloads[0].count) || 0;
     const isPub = t.status === 'published';
     return (
       '<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">' +
