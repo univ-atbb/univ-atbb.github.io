@@ -53,7 +53,7 @@
 
       if (!ref.trim() || !title.trim() || !opening || !file) return toast('أكمل جميع الحقول المطلوبة', 'error');
       if (file.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
-      if (file.size > 200 * 1024 * 1024) return toast('حجم الملف يتجاوز 200MB', 'error');
+      if (file.size > 50 * 1024 * 1024) return toast('حجم الملف يتجاوز 50MB', 'error');
 
       // تحقق مسبق: هل الرقم مستخدم؟
       const dup = await DB.from('tenders').select('id').eq('reference', ref.trim()).maybeSingle();
