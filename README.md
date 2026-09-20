@@ -25,7 +25,8 @@
 ```
 
 - **GitHub Pages**: يستضيف الواجهة فقط (مجاني، يعمل من أي مكان)
-- **Supabase**: يخزّن بيانات الاستشارات + سجل التحميلات + ملفات PDF (الخطة المجانية: 500MB قاعدة + 1GB ملفات — تكفي عشرات السنوات بحجم 70 استشارة/سنة)
+- **Supabase**: يخزّن بيانات الاستشارات + سجل التحميلات (الخطة المجانية: 500MB قاعدة + 1GB ملفات)
+- **Cloudflare R2**: يخزّن ملفات PDF الكبيرة (مجاني: 10GB مساحة + تنزيل غير محدود وبدون تكلفة — يتجاوز حد 50MB في Supabase المجانية)
 
 ---
 
@@ -53,6 +54,40 @@
 3. الصق محتوى `supabase/functions/get-download/index.ts` في المحرر
 4. **Deploy**
 5. في إعدادات الدالة فعّل **Allow anonymous calls**
+
+### 2.8) Cloudflare R2 (ملفات أكبر من 50MB)
+الخطة المجانية من Supabase تقيّد رفع الملف بـ 50MB. لرفع دفاتر الشروط الكبيرة (حتى 200MB):
+
+1. أنشئ حسابًا مجانيًا على [cloudflare.com](https://dash.cloudflare.com/sign-up)
+2. من القائمة: **R2 object storage** → **Create a bucket** → الاسم: `tenders`
+3. في صفحة الخزنة → **Settings** → **CORS Policy** → **Add CORS policy** → تبويب **JSON** والصق:
+   ```json
+   [
+     {
+       "AllowedOrigins": ["*"],
+       "AllowedMethods": ["GET", "PUT", "HEAD"],
+       "AllowedHeaders": ["*"],
+       "ExposeHeaders": ["ETag", "Content-Length"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+   ثم **Save**
+4. من **R2** → **Manage R2 API Tokens** → **Create API Token** → الصلاحيات: **Object: Read & Write** على الخزنة `tenders` → أنشئ وانسخ: **Account ID** + **Access Key ID** + **Secret Access Key** (تظهر مرة واحدة فقط)
+5. في **SQL Editor**، شغّل محتوى `supabase/migrations/003_r2_support.sql`
+6. في **SQL Editor** مرة أخرى، شغّل (بعد استبدال القيم بالتي نسختها):
+   ```sql
+   insert into public.app_config (key, value) values
+     ('r2_access_key_id', '...'),
+     ('r2_secret_access_key', '...'),
+     ('r2_bucket', 'tenders'),
+     ('r2_account_id', '...')
+   on conflict (key) do update set value = excluded.value, updated_at = now();
+   ```
+7. **Edge Functions** → **New function** → الاسم: `tender-files` → الصق `supabase/functions/tender-files/index.ts` → **Deploy** → يبقى **Protected** (بدون anonymous)
+8. أعد نشر `get-download` بالكود الجديد (يدعم R2): افتحها في المحرر → استبدل الكود بالكامل → **Deploy**
+
+> 💡 قبل إكمال R2: يمكن إنشاء استشارات بملفات 50MB فأقل (تخزين Supabase) — والملفات الأكبر تنتظر.
 
 ### 3) اربط التطبيق
 افتح `js/config.js` واملأ:
@@ -113,7 +148,7 @@ git push -u origin main
 
 ### الموظف — إنشاء استشارة
 1. تبويب **📝 إنشاء استشارة**: املأ الرقم والعنوان والمدة وتاريخ الفتح
-2. اختر ملف PDF (حد 50MB) → **🚀 نشر وتوليد QR**
+2. اختر ملف PDF (حد 200MB) → **🚀 نشر وتوليد QR**
 3. تظهر بطاقة QR → **🖨️ طباعة البطاقة** → سلّمها للمتعامل بعد سداد المستحقات
 
 ### المتعامل — التحميل
@@ -174,7 +209,9 @@ tender-portal/
 └── supabase/
     ├── migrations/
     │   ├── 001_initial_schema.sql    # الجداول + RLS + Storage
-    │   └── 002_security.sql          # قفل السياسات + العرض العام
+    │   ├── 002_security.sql          # قفل السياسات + العرض العام
+    │   └── 003_r2_support.sql        # عمود pdf_source + جدول app_config
     └── functions/
-        └── get-download/index.ts     # التحقق + التسجيل + الرابط المؤقت
+        ├── get-download/index.ts     # التحقق + التسجيل + الرابط المؤقت (Supabase أو R2)
+        └── tender-files/index.ts     # رفع/نشر/حذف ملفات R2 (موظفون فقط)
 ```

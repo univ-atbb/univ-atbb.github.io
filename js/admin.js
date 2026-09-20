@@ -53,7 +53,7 @@
 
       if (!ref.trim() || !title.trim() || !opening || !file) return toast('أكمل جميع الحقول المطلوبة', 'error');
       if (file.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
-      if (file.size > 50 * 1024 * 1024) return toast('حجم الملف يتجاوز 50MB', 'error');
+      if (file.size > 200 * 1024 * 1024) return toast('حجم الملف يتجاوز 200MB', 'error');
 
       // تحقق مسبق: هل الرقم مستخدم؟
       const dup = await DB.from('tenders').select('id').eq('reference', ref.trim()).maybeSingle();
@@ -62,24 +62,63 @@
       const btn = $('create-btn');
       setBusy(btn, true, '⏳ جارٍ الرفع والنشر...');
       try {
-        const id = crypto.randomUUID();
-        const pdfPath = 'tenders/' + id + '.pdf';
+        let tenderId;
 
-        const { error: upErr } = await DB.storage.from('tenders').upload(pdfPath, file, {
-          contentType: 'application/pdf',
+        // المسار الأول: Cloudflare R2 (ملفات حتى 200MB)
+        const prep = await DB.functions.invoke('tender-files', {
+          body: { action: 'prepare-upload', size: file.size },
         });
-        if (upErr) throw upErr;
 
-        const { error: insErr } = await DB.from('tenders').insert({
-          id,
-          reference: ref.trim(),
-          title: title.trim(),
-          duration: duration.trim() || null,
-          opening_date: new Date(opening).toISOString(),
-          pdf_path: pdfPath,
-          status: 'published',
-        });
-        if (insErr) throw insErr;
+        if (!prep.error && prep.data && prep.data.upload_url) {
+          tenderId = prep.data.tender_id;
+
+          // الرفع المباشر إلى R2 (لا يمر عبر Supabase فلا يوجد حد 50MB)
+          const put = await fetch(prep.data.upload_url, { method: 'PUT', body: file });
+          if (!put.ok) {
+            try { await DB.functions.invoke('tender-files', { body: { action: 'cancel-upload', tender_id: tenderId } }); } catch (_) {}
+            throw new Error('فشل رفع الملف إلى Cloudflare R2');
+          }
+
+          const fin = await DB.functions.invoke('tender-files', {
+            body: {
+              action: 'finalize-upload',
+              tender_id: tenderId,
+              reference: ref.trim(),
+              title: title.trim(),
+              duration: duration.trim(),
+              opening_date: new Date(opening).toISOString(),
+            },
+          });
+          if (fin.error) throw fin.error;
+          if (!fin.data || !fin.data.ok) {
+            try { await DB.functions.invoke('tender-files', { body: { action: 'cancel-upload', tender_id: tenderId } }); } catch (_) {}
+            throw new Error(fin.data && fin.data.error || 'فشل النشر');
+          }
+        } else {
+          // المسار الاحتياطي: تخزين Supabase (لملفات 50MB فأقل فقط)
+          if (file.size > 50 * 1024 * 1024) {
+            throw new Error('خدمة R2 غير مفعلة — الملفات الأكبر من 50MB تتطلب إكمال إعداد R2');
+          }
+          tenderId = crypto.randomUUID();
+          const pdfPath = 'tenders/' + tenderId + '.pdf';
+
+          const { error: upErr } = await DB.storage.from('tenders').upload(pdfPath, file, {
+            contentType: 'application/pdf',
+          });
+          if (upErr) throw upErr;
+
+          const { error: insErr } = await DB.from('tenders').insert({
+            id: tenderId,
+            reference: ref.trim(),
+            title: title.trim(),
+            duration: duration.trim() || null,
+            opening_date: new Date(opening).toISOString(),
+            pdf_path: pdfPath,
+            pdf_source: 'supabase',
+            status: 'published',
+          });
+          if (insErr) throw insErr;
+        }
 
         form.reset();
         $('file-info').textContent = '';
@@ -88,7 +127,7 @@
         await A.loadTenders();
         window.switchTo('tab-tenders');
         A.showQR({
-          id,
+          id: tenderId,
           reference: ref.trim(),
           title: title.trim(),
           duration: duration.trim() || null,
@@ -96,12 +135,13 @@
         });
       } catch (err) {
         console.error(err);
-        if (String((err && err.message) || '').includes('duplicate key')) {
+        const msg = String((err && err.message) || err);
+        if (msg.includes('duplicate')) {
           toast('⚠️ رقم الاستشارة مستخدم بالفعل — اختر رقمًا آخر', 'error', 5000);
-        } else if (String((err && err.message) || '').includes('storage')) {
-          toast('فشل رفع الملف — تأكد من الحجم (50MB كحد أقصى) وحاول مجددًا', 'error', 5000);
+        } else if (msg.includes('R2') || msg.includes('r2') || msg.includes('not found') || msg.includes('Cloudflare')) {
+          toast('خدمة رفع الملفات غير جاهزة — أكمل إعداد R2 ثم أعد المحاولة', 'error', 7000);
         } else {
-          toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
+          toast('فشل: ' + msg, 'error', 6000);
         }
       } finally {
         setBusy(btn, false, '🚀 نشر وتوليد QR');
@@ -321,7 +361,42 @@
     const btn = $('open-confirm-btn');
     setBusy(btn, true, '⏳ جارٍ الفتح...');
     try {
-      // 1) تغيير الحالة إلى opened
+      // المسار الأول: دالة الخادم (تحذف من R2 أو من التخزين القديم)
+      const { data, error } = await DB.functions.invoke('tender-files', {
+        body: { action: 'open-tender', tender_id: t.id },
+      });
+
+      if (!error && data && data.ok) {
+        closeModal('open-modal');
+        toast('✅ تم فتح الأظرفة وحذف الملف نهائيًا', 'success', 5000);
+        A.refreshTenders();
+        return;
+      }
+      if (error) throw error;
+      if (data && data.error === 'already_opened') throw new Error('already_opened');
+      throw new Error((data && data.error) || 'فشل الفتح');
+    } catch (err) {
+      console.error(err);
+      const msg = String((err && err.message) || err);
+      if (msg.includes('already_opened')) {
+        toast('هذه الاستشارة فُتحت مسبقًا', 'error', 5000);
+        A.refreshTenders();
+        return;
+      }
+      if (msg.includes('not found') || msg.includes('404')) {
+        // المسار الاحتياطي: دالة x غير منشورة — نفتح من المتصفح (للبنية القديمة فقط)
+        await legacyOpen(t);
+        return;
+      }
+      toast('فشل: ' + msg, 'error', 6000);
+    } finally {
+      setBusy(btn, false, '🔓 تأكيد الفتح والحذف النهائي');
+    }
+  }
+
+  // فتح الأظرفة بالطريقة القديمة (احتياطي إن لم تكن دالة tender-files منشورة بعد)
+  async function legacyOpen(t) {
+    try {
       const { data, error } = await DB.from('tenders')
         .update({ status: 'opened', opened_at: new Date().toISOString(), opened_by: null })
         .eq('id', t.id)
@@ -330,20 +405,19 @@
       if (error) throw error;
       if (!data || !data.length) throw new Error('تعذر التحديث (ربما تم فتحها مسبقًا)');
 
-      // 2) حذف PDF نهائيًا من التخزين
-      if (t.pdf_path) {
+      if (t.pdf_source === 'r2') {
+        console.warn('تنبيه: الملف على R2 — حُظرت التحميلات لكن حذف الملف يتطلب دالة tender-files');
+      } else if (t.pdf_path) {
         const { error: delErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
         if (delErr) console.warn('تنبيه: حُدثت الحالة لكن ملف التخزين:', delErr.message || delErr);
       }
 
       closeModal('open-modal');
-      toast('✅ تم فتح الأظرفة وحذف الملف نهائيًا', 'success', 5000);
+      toast(t.pdf_source === 'r2' ? '⚠️ فُتحت الاستشارة (التحميل موقوف) — أكمل إعداد R2 لحذف الملف' : '✅ تم فتح الأظرفة وحذف الملف نهائيًا', 'success', 6000);
       A.refreshTenders();
-    } catch (err) {
-      console.error(err);
-      toast('فشل: ' + ((err && err.message) || err), 'error', 6000);
-    } finally {
-      setBusy(btn, false, '🔓 تأكيد الفتح والحذف النهائي');
+    } catch (err2) {
+      console.error(err2);
+      toast('فشل: ' + ((err2 && err2.message) || err2), 'error', 6000);
     }
   }
 
