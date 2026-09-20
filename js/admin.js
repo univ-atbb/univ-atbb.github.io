@@ -206,7 +206,9 @@
     $('qr-duration').textContent = t.duration || '—';
     $('qr-opening').textContent = fmtDate(t.opening_date, true);
 
-    const base = location.href.split('?')[0];
+    // رابط QR: دائمًا من الموقع المنشور (حتى عند الاستخدام المحلي)
+    const configured = (window.TENDER_CONFIG || {}).PUBLIC_BASE_URL;
+    const base = (configured || location.href.split('?')[0]).replace(/\/$/, '');
     const url = base + '?open=' + t.id;
     $('qr-url').textContent = url;
 
