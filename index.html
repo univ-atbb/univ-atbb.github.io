@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>بوابة مكتب الصفقات</title>
+  <title>جامعة عين تموشنت بلحاج بوشعيب — بوابة مكتب الصفقات</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -46,7 +46,7 @@
   <!-- ============================================================ -->
   <div id="page-download" class="hidden">
     <div id="download-root" class="max-w-lg mx-auto px-4 py-8"></div>
-    <footer class="text-center text-[11px] text-slate-400 pb-6">بوابة مكتب الصفقات الجامعية</footer>
+    <footer class="text-center text-[11px] text-slate-400 pb-6">جامعة عين تموشنت بلحاج بوشعيب — بوابة مكتب الصفقات</footer>
   </div>
 
   <!-- ============================================================ -->
@@ -58,9 +58,9 @@
     <div id="login-card" class="hidden min-h-screen flex items-center justify-center px-4">
       <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 w-full max-w-sm">
         <div class="text-center mb-5">
-          <div class="text-4xl mb-2">🏛️</div>
-          <h2 class="font-black text-slate-800">بوابة مكتب الصفقات</h2>
-          <p class="text-xs text-slate-400 mt-1">دخول موظف المكتب فقط</p>
+          <img src="img/logo.png" alt="شعار الجامعة" class="mx-auto h-16 w-16 object-contain mb-2">
+          <h2 class="font-black text-slate-800">جامعة عين تموشنت بلحاج بوشعيب</h2>
+          <p class="text-xs text-slate-500 mt-0.5">بوابة مكتب الصفقات — دخول موظف المكتب فقط</p>
         </div>
         <form id="login-form" class="space-y-3">
           <div>
@@ -83,9 +83,12 @@
     <div id="authed-app" class="hidden">
     <header class="sticky top-0 z-40 bg-primary-700 text-white shadow-md">
       <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 class="font-black text-lg leading-tight">🏛️ بوابة مكتب الصفقات</h1>
-          <p class="text-[11px] text-teal-100">إدارة استشارات الصفقات الجامعية</p>
+        <div class="flex items-center gap-2.5">
+          <img src="img/logo.png" alt="شعار الجامعة" class="h-10 w-10 object-contain bg-white rounded-lg p-0.5 shrink-0">
+          <div>
+            <h1 class="font-black text-lg leading-tight">بوابة مكتب الصفقات</h1>
+            <p class="text-[11px] text-teal-100">جامعة عين تموشنت بلحاج بوشعيب</p>
+          </div>
         </div>
         <div class="flex items-center gap-2">
           <span id="user-name" class="text-[11px] text-teal-100" dir="ltr"></span>
@@ -193,8 +196,9 @@
         <button data-close="qr-modal" class="text-xl leading-none opacity-80">✕</button>
       </div>
       <div id="qr-card" class="p-6 text-center">
-        <div class="text-xs font-bold text-slate-400 tracking-wide mb-1">مكتب الصفقات الجامعية</div>
-        <div class="text-[11px] text-slate-400 mb-4">قسيمة تحميل دفتر الشروط</div>
+        <img src="img/logo.png" alt="شعار الجامعة" class="mx-auto h-16 w-16 object-contain mb-2">
+        <div class="font-black text-slate-800 text-sm leading-snug mb-0.5">جامعة عين تموشنت بلحاج بوشعيب</div>
+        <div class="text-xs font-bold text-slate-400 mb-4">مكتب الصفقات — قسيمة تحميل دفتر الشروط</div>
         <div class="font-black text-slate-800 text-lg"><span id="qr-kind">استشارة</span> عدد: <span id="qr-reference"></span></div>
         <div id="qr-title" class="text-sm text-slate-600 mt-1 mb-4"></div>
         <canvas id="qr-canvas" class="mx-auto rounded-lg border border-slate-200 bg-white"></canvas>
