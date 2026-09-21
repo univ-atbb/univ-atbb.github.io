@@ -54,9 +54,7 @@
 2. في **SQL Editor**، انسخ محتوى `supabase/migrations/005_delete_policy.sql` وشغّله
    (بدونه يظهر "تم الحذف" في الواجهة لكن الصف لا يُحذف فعليًا)
 
-> ⚠️ إذا كان مشروعك قديمًا وشغّلت 001 و002 فقط: شغّل **004 و005 الآن** — هما سبب خطأ توليد QR وزر الحذف.
-
-> ⚠️ كما أنه عند استبدال دفتر الشروط (تحديث الملف)، قد تظهر رسالة "new row violates row-level security policy" — لحل هذه المشكلة، شغل محتوى `supabase/migrations/006_storage_update_policy.sql` في SQL Editor.
+> ⚠️ إذا كان مشروعك قديمًا وشغّلت 001 و002 فقط: شغّل **`supabase/migrations/006_full_update.sql`** (ملف واحد يحتوي 003+004+005 وسياسة تحديث التخزين — آمن إعادة تشغيله).
 
 ### 2.7) أنشئ Edge Function
 1. **Edge Functions** → **New function**
