@@ -97,6 +97,13 @@
       </div>
     </header>
 
+    <!-- ===== تنبيه: قاعدة البيانات غير محدثة ===== -->
+    <div id="schema-banner" class="hidden max-w-3xl mx-auto mt-3 mx-4 bg-red-50 border border-red-300 rounded-xl p-3 text-sm text-red-800 leading-relaxed">
+      ⚠️ <b>قاعدة البيانات غير محدثة</b> — إنشاء/حذف الاستشارات سيفشل. افتح Supabase ← <b>SQL Editor</b> وشغّل محتوى الملف
+      <code class="bg-red-100 px-1.5 py-0.5 rounded text-xs" dir="ltr">supabase\migrations\006_full_update.sql</code>
+      ثم حدّث هذه الصفحة (F5).
+    </div>
+
     <main class="max-w-3xl mx-auto px-4 py-5 pb-28">
 
       <!-- ===== تبويب: إنشاء استشارة ===== -->
@@ -206,7 +213,7 @@
           <div class="bg-slate-50 rounded-lg p-2"><span class="text-slate-400">المدة:</span> <span id="qr-duration"></span></div>
           <div class="bg-slate-50 rounded-lg p-2"><span class="text-slate-400">فتح الأظرفة:</span> <span id="qr-opening"></span></div>
         </div>
-        <p class="text-[11px] text-slate-400 mt-4 leading-relaxed">بعد سداد المستحقات، امسح الرمز بكاميرا الهاتف لفتح صفحة التحميل. الرابط مؤقت وصالح 10 دقائق، وتُسجَّل بيانات مؤسستك عند كل تحميل.</p>
+        <p class="text-[11px] text-slate-400 mt-4 leading-relaxed">امسح الرمز بكاميرا الهاتف لفتح صفحة تحميل دفتر الشروط. الرابط المؤقت صالح 10 دقائق، وتُسجَّل بيانات مؤسستك عند كل تحميل.</p>
         <div class="text-[10px] text-slate-300 mt-2 break-all" dir="ltr" id="qr-url"></div>
       </div>
       <div class="px-4 pb-4 flex gap-2 no-print">

@@ -1,4 +1,4 @@
-/* ===== لوحة المدير: إنشاء + قائمة + QR + سجل التحميلات + فتح الأظرفة ===== */
+/* ===== لوحة المدير: إنشاء + قائمة + QR + سجل التحميلات + فتح الأظرفة + تغيير + حذف ===== */
 (function () {
   const PAGE_SIZE = 20;
   const A = (window.Admin = {});
@@ -21,7 +21,20 @@
     if (s) s.addEventListener('input', debounce(() => { A.page = 1; A.loadTenders(); }, 300));
     A.page = 1;
     A.loadTenders();
+    checkSchema();
   };
+
+  // التحقق من أن قاعدة البيانات محدثة (الأعمدة الجديدة موجودة)
+  async function checkSchema() {
+    const banner = $('schema-banner');
+    if (!banner) return;
+    try {
+      const { error } = await DB.from('tenders').select('id, kind, pdf_source').limit(1);
+      if (error) banner.classList.remove('hidden');
+    } catch (e) {
+      banner.classList.remove('hidden');
+    }
+  }
 
   A.refreshTenders = function () {
     A.loadTenders();
@@ -60,7 +73,7 @@
       if (file.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
       if (file.size > 50 * 1024 * 1024) return toast('حجم الملف يتجاوز 50MB', 'error');
 
-      // تحقق مسبق: هل الرقم مستخدم؟
+      // التحقق من أن الرقم غير مستخدم
       const dup = await DB.from('tenders').select('id').eq('reference', ref.trim()).maybeSingle();
       if (dup.data) return toast('⚠️ رقم الاستشارة "' + ref.trim() + '" موجود بالفعل — اختر رقمًا آخر', 'error', 5000);
 
@@ -69,7 +82,7 @@
       try {
         let tenderId;
 
-        // المسار الأول: Cloudflare R2 (ملفات حتى 200MB)
+        // المسار 1: Cloudflare R2 (ملفات حتى 200MB) — إن كانت مهيأة
         const prep = await DB.functions.invoke('tender-files', {
           body: { action: 'prepare-upload', size: file.size },
         });
@@ -77,7 +90,7 @@
         if (!prep.error && prep.data && prep.data.upload_url) {
           tenderId = prep.data.tender_id;
 
-          // الرفع المباشر إلى R2 (لا يمر عبر Supabase فلا يوجد حد 50MB)
+          // رفع مباشر إلى R2 (لا يمر عبر Supabase فلا يوجد حد 50MB)
           const put = await fetch(prep.data.upload_url, { method: 'PUT', body: file });
           if (!put.ok) {
             try { await DB.functions.invoke('tender-files', { body: { action: 'cancel-upload', tender_id: tenderId } }); } catch (_) {}
@@ -101,9 +114,9 @@
             throw new Error(fin.data && fin.data.error || 'فشل النشر');
           }
         } else {
-          // المسار الاحتياطي: تخزين Supabase (لملفات 50MB فأقل فقط)
+          // المسار 2: Supabase Storage (ملفات حتى 50MB فقط)
           if (file.size > 50 * 1024 * 1024) {
-            throw new Error('خدمة R2 غير مفعلة — الملفات الأكبر من 50MB تتطلب إكمال إعداد R2');
+            throw new Error('خدمة R2 غير مفعلة — الملفات الأكبر من 50MB تتطلب إعداد R2');
           }
           tenderId = crypto.randomUUID();
           const pdfPath = 'tenders/' + tenderId + '.pdf';
@@ -129,12 +142,13 @@
 
         form.reset();
         $('file-info').textContent = '';
-        toast('✅ تم النشر — هذه بطاقة QR الجاهزة', 'success');
+        toast('✅ تم النشر — بطاقة QR جاهزة', 'success');
         A.page = 1;
         await A.loadTenders();
         window.switchTo('tab-tenders');
         A.showQR({
           id: tenderId,
+          kind,
           reference: ref.trim(),
           title: title.trim(),
           duration: duration.trim() || null,
@@ -145,8 +159,11 @@
         const msg = String((err && err.message) || err);
         if (msg.includes('duplicate')) {
           toast('⚠️ رقم الاستشارة مستخدم بالفعل — اختر رقمًا آخر', 'error', 5000);
-        } else if (msg.includes('R2') || msg.includes('r2') || msg.includes('not found') || msg.includes('Cloudflare')) {
-          toast('خدمة رفع الملفات غير جاهزة — أكمل إعداد R2 ثم أعد المحاولة', 'error', 7000);
+        } else if (msg.includes('column of') || msg.includes('schema cache')) {
+          toast('⚠️ قاعدة البيانات غير محدثة — شغّل 006_full_update.sql في SQL Editor ثم أعد المحاولة', 'error', 8000);
+          checkSchema();
+        } else if (msg.includes('R2') || msg.includes('r2') || msg.includes('Cloudflare')) {
+          toast('خدمة R2 غير مهيأة — أكمل إعداد R2 ثم أعد المحاولة', 'error', 7000);
         } else {
           toast('فشل: ' + msg, 'error', 6000);
         }
@@ -156,7 +173,7 @@
     });
   }
 
-  /* ---------- أزرار ثابتة ---------- */
+  /* ---------- الأزرار الثابتة ---------- */
 
   function bindStaticButtons() {
     const csvBtn = $('dl-csv');
@@ -245,14 +262,14 @@
     );
   }
 
-  // تفويض نقرات الأزرار في القائمة
+  // نقرات أزرار القائمة
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const list = $('tenders-list');
     if (!list || !list.contains(btn)) return;
     DB.from('tenders').select('*').eq('id', btn.dataset.id).maybeSingle().then(({ data, error }) => {
-      if (error || !data) return toast('تعذر جلب الاستشارة', 'error');
+      if (error || !data) return toast('فشل جلب الاستشارة', 'error');
       if (btn.dataset.act === 'qr') A.showQR(data);
       else if (btn.dataset.act === 'downloads') A.showDownloads(data);
       else if (btn.dataset.act === 'open') askOpen(data);
@@ -270,11 +287,12 @@
     $('qr-duration').textContent = t.duration || '—';
     $('qr-opening').textContent = fmtDate(t.opening_date, true);
 
-    // رابط QR: دائمًا من الموقع المنشور (حتى عند الاستخدام المحلي)
+    // رابط QR
     const configured = (window.TENDER_CONFIG || {}).PUBLIC_BASE_URL;
     const base = (configured || location.href.split('?')[0]).replace(/\/$/, '');
     const url = base + '?open=' + t.id;
-    $('qr-url').textContent = url;
+    const qrUrl = $('qr-url');
+    if (qrUrl) qrUrl.textContent = url;
 
     const canvas = $('qr-canvas');
     if (typeof window.QRCode === 'undefined') {
@@ -284,7 +302,7 @@
     window.QRCode.toCanvas(canvas, url, { width: 220, margin: 2, errorCorrectionLevel: 'M' }, (err) => {
       if (err) {
         console.error(err);
-        toast('تعذر توليد QR', 'error');
+        toast('فشل توليد QR', 'error');
         return;
       }
       openModal('qr-modal');
@@ -322,22 +340,20 @@
       box.innerHTML =
         '<table class="w-full text-sm">' +
         '<thead><tr class="text-slate-400 text-xs border-b border-slate-200">' +
-        '<th class="py-2 text-right">الشركة</th><th class="py-2 text-right">الهاتف</th>' +
+        '<th class="py-2 text-right">المؤسسة</th><th class="py-2 text-right">الهاتف</th>' +
         '<th class="py-2 text-right">البريد</th><th class="py-2 text-right">IP</th><th class="py-2 text-right">الوقت</th>' +
         '</tr></thead>' +
         '<tbody>' +
-        data
-          .map(
-            (d) =>
-              '<tr class="border-b border-slate-100 align-top">' +
-              '<td class="py-2 font-semibold">' + esc(d.company) + '</td>' +
-              '<td class="py-2" dir="ltr">' + esc(d.phone) + '</td>' +
-              '<td class="py-2 break-all" dir="ltr">' + esc(d.email) + '</td>' +
-              '<td class="py-2 text-xs text-slate-400" dir="ltr">' + esc(d.ip_address || '—') + '</td>' +
-              '<td class="py-2 text-xs text-slate-500 whitespace-nowrap">' + fmtDate(d.downloaded_at, true) + '</td>' +
-              '</tr>'
-          )
-          .join('') +
+        data.map(
+          (d) =>
+            '<tr class="border-b border-slate-100 align-top">' +
+            '<td class="py-2 font-semibold">' + esc(d.company) + '</td>' +
+            '<td class="py-2" dir="ltr">' + esc(d.phone) + '</td>' +
+            '<td class="py-2 break-all" dir="ltr">' + esc(d.email) + '</td>' +
+            '<td class="py-2 text-xs text-slate-400" dir="ltr">' + esc(d.ip_address || '—') + '</td>' +
+            '<td class="py-2 text-xs text-slate-500 whitespace-nowrap">' + fmtDate(d.downloaded_at, true) + '</td>' +
+            '</tr>'
+        ).join('') +
         '</tbody></table>';
       $('dl-pager').innerHTML = pagerHtml(dlTotal, dlPage, 'dl');
       bindPager();
@@ -364,7 +380,7 @@
     return /[",\n]/.test(v) ? '"' + v.replaceAll('"', '""') + '"' : v;
   }
 
-  /* ---------- فتح الأظرفة + حذف الملف ---------- */
+  /* ---------- فتح الأظرفة ---------- */
 
   function askOpen(t) {
     openTender = t;
@@ -382,65 +398,37 @@
     if (val('open-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
 
     const btn = $('open-confirm-btn');
-    setBusy(btn, true, '⏳ جارٍ الفتح...');
+    setBusy(btn, true, '⏳ جارٍ تنفيذ الفتح...');
     try {
-      // المسار الأول: دالة الخادم (تحذف من R2 أو من التخزين القديم)
-      const { data, error } = await DB.functions.invoke('tender-files', {
-        body: { action: 'open-tender', tender_id: t.id },
-      });
+      const { data: { user } } = await DB.auth.getUser();
 
-      if (!error && data && data.ok) {
-        closeModal('open-modal');
-        toast('✅ تم فتح الأظرفة وحذف الملف نهائيًا', 'success', 5000);
-        A.refreshTenders();
-        return;
-      }
+      const { data, error } = await DB.from('tenders')
+        .update({ status: 'opened', opened_at: new Date().toISOString(), opened_by: user ? user.id : null })
+        .eq('id', t.id)
+        .eq('status', 'published')
+        .select('id');
       if (error) throw error;
-      if (data && data.error === 'already_opened') throw new Error('already_opened');
-      throw new Error((data && data.error) || 'فشل الفتح');
+      if (!data || !data.length) throw new Error('already_opened');
+
+      if (t.pdf_path) {
+        const { error: delErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
+        if (delErr) console.warn('تنبيه: الحالة تغيّرت لكن ملف التخزين:', delErr.message || delErr);
+      }
+
+      closeModal('open-modal');
+      toast('✅ فُتحت الأظرفة وحُذف الملف نهائيًا', 'success', 5000);
+      A.refreshTenders();
     } catch (err) {
       console.error(err);
       const msg = String((err && err.message) || err);
       if (msg.includes('already_opened')) {
         toast('هذه الاستشارة فُتحت مسبقًا', 'error', 5000);
         A.refreshTenders();
-        return;
+      } else {
+        toast('فشل: ' + msg, 'error', 6000);
       }
-      if (msg.includes('not found') || msg.includes('404')) {
-        // المسار الاحتياطي: دالة x غير منشورة — نفتح من المتصفح (للبنية القديمة فقط)
-        await legacyOpen(t);
-        return;
-      }
-      toast('فشل: ' + msg, 'error', 6000);
     } finally {
       setBusy(btn, false, '🔓 تأكيد الفتح والحذف النهائي');
-    }
-  }
-
-  // فتح الأظرفة بالطريقة القديمة (احتياطي إن لم تكن دالة tender-files منشورة بعد)
-  async function legacyOpen(t) {
-    try {
-      const { data, error } = await DB.from('tenders')
-        .update({ status: 'opened', opened_at: new Date().toISOString(), opened_by: null })
-        .eq('id', t.id)
-        .eq('status', 'published')
-        .select('id');
-      if (error) throw error;
-      if (!data || !data.length) throw new Error('تعذر التحديث (ربما تم فتحها مسبقًا)');
-
-      if (t.pdf_source === 'r2') {
-        console.warn('تنبيه: الملف على R2 — حُظرت التحميلات لكن حذف الملف يتطلب دالة tender-files');
-      } else if (t.pdf_path) {
-        const { error: delErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
-        if (delErr) console.warn('تنبيه: حُدثت الحالة لكن ملف التخزين:', delErr.message || delErr);
-      }
-
-      closeModal('open-modal');
-      toast(t.pdf_source === 'r2' ? '⚠️ فُتحت الاستشارة (التحميل موقوف) — أكمل إعداد R2 لحذف الملف' : '✅ تم فتح الأظرفة وحذف الملف نهائيًا', 'success', 6000);
-      A.refreshTenders();
-    } catch (err2) {
-      console.error(err2);
-      toast('فشل: ' + ((err2 && err2.message) || err2), 'error', 6000);
     }
   }
 
@@ -476,14 +464,26 @@
         const put = await fetch(prep.data.upload_url, { method: 'PUT', body: f });
         if (!put.ok) throw new Error('فشل رفع الملف');
       } else {
-        const { error } = await DB.storage.from('tenders').upload(t.pdf_path, f, {
+        // حذف الملف القديم ثم رفع الجديد في نفس المسار (نفس المسار → نفس QR)
+        // ملاحظة: لا نستخدم upsert لأن صلاحيات التخزين تتيح الإدراج والحذف فقط
+        if (t.pdf_path) {
+          const { error: rmErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
+          if (rmErr) console.warn('تنبيه: حذف الملف القديم:', rmErr.message || rmErr);
+        }
+        let up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
           contentType: 'application/pdf',
-          upsert: true,
         });
-        if (error) throw error;
+        if (up.error && /exist/i.test(String(up.error.message || up.error))) {
+          // الحذف ربما لم يكتمل بعد — ننتظر قليلًا ثم نعيد الرفع مرة
+          await new Promise((r) => setTimeout(r, 1500));
+          up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
+            contentType: 'application/pdf',
+          });
+        }
+        if (up.error) throw up.error;
       }
       closeModal('replace-modal');
-      toast('✅ تم استبدال الملف — رمز QR نفسه ما زال صالحًا', 'success', 5000);
+      toast('✅ تم استبدال الملف — رمز QR نفسه صالح', 'success', 5000);
       A.refreshTenders();
     } catch (err) {
       console.error(err);
@@ -522,12 +522,17 @@
         if (error) throw error;
         if (!data || !data.ok) throw new Error((data && data.error) || 'فشل الحذف');
       } else {
-        if (t.pdf_path) {
-          const { error: delErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
-          if (delErr) console.warn('تنبيه: ملف التخزين:', delErr.message || delErr);
-        }
-        const { error } = await DB.from('tenders').delete().eq('id', t.id);
+        // 1) حذف الصف من قاعدة البيانات (مع التحقق الفعلي من التنفيذ)
+        const { data: delRows, error } = await DB.from('tenders').delete().eq('id', t.id).select('id');
         if (error) throw error;
+        if (!delRows || !delRows.length) {
+          throw new Error('لم ينفذ الحذف — شغّل ملف التحديث 006_full_update.sql في SQL Editor (السماح بالحذف)');
+        }
+        // 2) حذف الملف من التخزين (إن وُجد)
+        if (t.pdf_path) {
+          const { error: rmErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
+          if (rmErr) console.warn('تنبيه: حُذفت الاستشارة لكن الملف:', rmErr.message || rmErr);
+        }
       }
       closeModal('delete-modal');
       toast('✅ حُذفت الاستشارة نهائيًا', 'success', 5000);
@@ -561,12 +566,12 @@
         if (error) throw error;
         if (!data || data.error) {
           const msg =
-            data.error === 'weak_password' ? 'كلمة المرور ضعيفة (8 أحرف على الأقل)'
-            : data.error === 'bad_email' ? 'بريد غير صالح'
+            data.error === 'weak_password' ? 'كلمة المرور: 8 أحرف على الأقل'
+            : data.error === 'bad_email' ? 'بريد إلكتروني غير صالح'
             : data.error;
           throw new Error(msg);
         }
-        toast('✅ أُضيف الحساب — يمكنه الدخول فورًا', 'success');
+        toast('✅ تمت إضافة الحساب — يمكنه الدخول فورًا', 'success');
         form.reset();
         A.refreshAccounts();
       } catch (err) {
@@ -607,7 +612,7 @@
       '<div class="font-bold text-sm text-slate-800">' + esc(u.full_name || u.email) +
       (u.is_you ? ' <span class="text-[10px] text-teal-600 font-bold">(أنت)</span>' : '') + '</div>' +
       '<div class="text-xs text-slate-400" dir="ltr">' + esc(u.email) + '</div>' +
-      '<div class="text-[10px] text-slate-400 mt-0.5">صلاحيات كاملة • أُنشئ ' + fmtDate(u.created_at) + '</div>' +
+      '<div class="text-[10px] text-slate-400 mt-0.5">صلاحيات كاملة • أُنشئ في ' + fmtDate(u.created_at) + '</div>' +
       '</div>' +
       (u.is_you
         ? ''
@@ -617,10 +622,10 @@
   }
 
   function deleteAccount(id, email) {
-    if (!confirm('حذف حساب "' + email + '"؟ سيفقد الدخول فورًا ولا يمكن التراجع.')) return;
+    if (!confirm('حذف الحساب "' + email + '"؟ سيفقد تسجيله فورًا ولا يمكن التراجع.')) return;
     DB.functions.invoke('manage-users', { body: { action: 'delete', id } }).then(({ data, error }) => {
       if (error) return toast('فشل الحذف: ' + (error.message || error), 'error', 5000);
-      if (data && data.error === 'cannot_delete_self') return toast('لا يمكن حذف حسابك الحالي', 'error');
+      if (data && data.error === 'cannot_delete_self') return toast('لا يمكنك حذف حسابك الحالي', 'error');
       toast('✅ حُذف الحساب', 'success');
       A.refreshAccounts();
     });

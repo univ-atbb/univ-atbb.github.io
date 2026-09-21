@@ -48,6 +48,16 @@
 ### 2.5) شغّل سياسات الأمان
 1. في **SQL Editor** مرة أخرى، انسخ محتوى `supabase/migrations/002_security.sql` وشغّله
 
+### 2.6) نوع الصفقة + سياسة الحذف (إجباري)
+1. في **SQL Editor**، انسخ محتوى `supabase/migrations/004_add_kind.sql` وشغّله
+   (يضيف عمود `kind` — بدونه يفشل إنشاء أي استشارة جديدة برسالة `Could not find the 'kind' column`)
+2. في **SQL Editor**، انسخ محتوى `supabase/migrations/005_delete_policy.sql` وشغّله
+   (بدونه يظهر "تم الحذف" في الواجهة لكن الصف لا يُحذف فعليًا)
+
+> ⚠️ إذا كان مشروعك قديمًا وشغّلت 001 و002 فقط: شغّل **004 و005 الآن** — هما سبب خطأ توليد QR وزر الحذف.
+
+> ⚠️ كما أنه عند استبدال دفتر الشروط (تحديث الملف)، قد تظهر رسالة "new row violates row-level security policy" — لحل هذه المشكلة، شغل محتوى `supabase/migrations/006_storage_update_policy.sql` في SQL Editor.
+
 ### 2.7) أنشئ Edge Function
 1. **Edge Functions** → **New function**
 2. الاسم: `get-download`
@@ -149,7 +159,7 @@ git push -u origin main
 ### الموظف — إنشاء استشارة
 1. تبويب **📝 إنشاء استشارة**: اختر النوع (📄 استشارة / 📋 طلب عروض) ثم املأ الرقم والعنوان والمدة وتاريخ الفتح
 2. اختر ملف PDF (حد 50MB حاليًا — انظر 2.8 لرفع الحد إلى 200MB لاحقًا) → **🚀 نشر وتوليد QR**
-3. تظهر بطاقة QR → **🖨️ طباعة البطاقة** → سلّمها للمتعامل بعد سداد المستحقات
+3. تظهر بطاقة QR → **🖨️ طباعة البطاقة** → سلّمها للمتعامل 
 
 ### المتعامل — التحميل
 1. يمسح الرمز بكاميرا الهاتف
@@ -210,7 +220,9 @@ tender-portal/
     ├── migrations/
     │   ├── 001_initial_schema.sql    # الجداول + RLS + Storage
     │   ├── 002_security.sql          # قفل السياسات + العرض العام
-    │   └── 003_r2_support.sql        # عمود pdf_source + جدول app_config
+    │   ├── 003_r2_support.sql        # عمود pdf_source + جدول app_config
+    │   ├── 004_add_kind.sql          # عمود kind (استشارة / طلب عروض)
+    │   └── 005_delete_policy.sql     # سياسة RLS لحذف الاستشارات
     └── functions/
         ├── get-download/index.ts     # التحقق + التسجيل + الرابط المؤقت (Supabase أو R2)
         └── tender-files/index.ts     # رفع/نشر/حذف ملفات R2 (موظفون فقط)
