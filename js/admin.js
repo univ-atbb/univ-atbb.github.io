@@ -464,39 +464,29 @@
         const put = await fetch(prep.data.upload_url, { method: 'PUT', body: f });
         if (!put.ok) throw new Error('فشل رفع الملف');
       } else {
-        // حذف الملف القديم ثم رفع الجديد في نفس المسار (نفس المسار → نفس QR)
-        let rmErr = null;
-        if (t.pdf_path) {
-          const rm = await DB.storage.from('tenders').remove([t.pdf_path]);
-          rmErr = rm.error || null;
-          if (rmErr && !/not found|no such|404/i.test(String(rmErr.message || rmErr))) {
-            console.warn('حذف الملف القديم مرفوض:', rmErr);
-          }
-        }
-        let up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
+        // رفع الجديد في مسار فريد جديد + تحديث مسار الصف
+        // (الـ QR يستخدم رقم الاستشارة فقط — فيبقى صالحًا بدون أي تغيير)
+        const newPath = 'tenders/' + t.id + '-r' + Date.now() + '.pdf';
+
+        // 1) رفع الملف الجديد (مسار جديد دائمًا → لا تعارض 409)
+        const { error: upErr } = await DB.storage.from('tenders').upload(newPath, f, {
           contentType: 'application/pdf',
         });
-        // إعادة محاولة عند تعارض مؤقت (الحذف لم يكتمل بعد)
-        let tries = 0;
-        while (up.error && /exist|duplicate/i.test(String(up.error.message || up.error)) && tries < 2) {
-          await new Promise((r) => setTimeout(r, 2000));
-          up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
-            contentType: 'application/pdf',
-          });
-          tries++;
+        if (upErr) throw upErr;
+
+        // 2) تحديث مسار الملف في صف الاستشارة
+        const { error: rowErr } = await DB.from('tenders')
+          .update({ pdf_path: newPath })
+          .eq('id', t.id);
+        if (rowErr) {
+          await DB.storage.from('tenders').remove([newPath]);
+          throw rowErr;
         }
-        // محاولة أخيرة: upsert (تنجح إن كانت سياسة تحديث التخزين مفعلة)
-        if (up.error && /exist|duplicate/i.test(String(up.error.message || up.error))) {
-          up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
-            contentType: 'application/pdf',
-            upsert: true,
-          });
-        }
-        if (up.error) {
-          const extra = rmErr
-            ? ' — سبب محتمل (حذف الملف القديم مرفوض): ' + (rmErr.message || rmErr)
-            : ' — إن استمر: شغّل 006_full_update.sql في SQL Editor';
-          throw new Error('تعذر استبدال الملف: ' + (up.error.message || up.error) + extra);
+
+        // 3) حذف الملف القديم (بجهد — إن فشل يبقى غير قابل للوصول)
+        if (t.pdf_path && t.pdf_path !== newPath) {
+          const { error: rmErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
+          if (rmErr) console.warn('تنبيه: بقي الملف القديم:', rmErr.message || rmErr);
         }
       }
       closeModal('replace-modal');
