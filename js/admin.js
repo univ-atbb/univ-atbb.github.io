@@ -465,22 +465,39 @@
         if (!put.ok) throw new Error('فشل رفع الملف');
       } else {
         // حذف الملف القديم ثم رفع الجديد في نفس المسار (نفس المسار → نفس QR)
-        // ملاحظة: لا نستخدم upsert لأن صلاحيات التخزين تتيح الإدراج والحذف فقط
+        let rmErr = null;
         if (t.pdf_path) {
-          const { error: rmErr } = await DB.storage.from('tenders').remove([t.pdf_path]);
-          if (rmErr) console.warn('تنبيه: حذف الملف القديم:', rmErr.message || rmErr);
+          const rm = await DB.storage.from('tenders').remove([t.pdf_path]);
+          rmErr = rm.error || null;
+          if (rmErr && !/not found|no such|404/i.test(String(rmErr.message || rmErr))) {
+            console.warn('حذف الملف القديم مرفوض:', rmErr);
+          }
         }
         let up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
           contentType: 'application/pdf',
         });
-        if (up.error && /exist/i.test(String(up.error.message || up.error))) {
-          // الحذف ربما لم يكتمل بعد — ننتظر قليلًا ثم نعيد الرفع مرة
-          await new Promise((r) => setTimeout(r, 1500));
+        // إعادة محاولة عند تعارض مؤقت (الحذف لم يكتمل بعد)
+        let tries = 0;
+        while (up.error && /exist|duplicate/i.test(String(up.error.message || up.error)) && tries < 2) {
+          await new Promise((r) => setTimeout(r, 2000));
           up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
             contentType: 'application/pdf',
           });
+          tries++;
         }
-        if (up.error) throw up.error;
+        // محاولة أخيرة: upsert (تنجح إن كانت سياسة تحديث التخزين مفعلة)
+        if (up.error && /exist|duplicate/i.test(String(up.error.message || up.error))) {
+          up = await DB.storage.from('tenders').upload(t.pdf_path, f, {
+            contentType: 'application/pdf',
+            upsert: true,
+          });
+        }
+        if (up.error) {
+          const extra = rmErr
+            ? ' — سبب محتمل (حذف الملف القديم مرفوض): ' + (rmErr.message || rmErr)
+            : ' — إن استمر: شغّل 006_full_update.sql في SQL Editor';
+          throw new Error('تعذر استبدال الملف: ' + (up.error.message || up.error) + extra);
+        }
       }
       closeModal('replace-modal');
       toast('✅ تم استبدال الملف — رمز QR نفسه صالح', 'success', 5000);
