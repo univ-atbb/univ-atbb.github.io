@@ -5,7 +5,7 @@
 
   /* ---------- تبديل التبويبات ---------- */
   window.switchTo = function (id) {
-    ['tab-create', 'tab-tenders', 'tab-accounts'].forEach((s) => {
+    ['tab-create', 'tab-tenders', 'tab-opening', 'tab-accounts'].forEach((s) => {
       const el = $(s);
       if (el) el.classList.add('hidden');
     });
@@ -25,6 +25,7 @@
         const target = btn.dataset.tab;
         window.switchTo(target);
         if (target === 'tab-tenders') window.Admin.refreshTenders();
+        if (target === 'tab-opening') window.Admin.loadOpening();
         if (target === 'tab-accounts') window.Admin.refreshAccounts();
       });
     });

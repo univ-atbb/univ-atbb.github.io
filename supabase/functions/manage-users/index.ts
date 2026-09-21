@@ -48,19 +48,19 @@ Deno.serve(async (req) => {
       id: u.id,
       email: u.email,
       full_name: (u.user_metadata && u.user_metadata.full_name) || '',
-      role: (u.user_metadata && u.user_metadata.role === 'committee') ? 'committee' : 'admin',
+      role: parseRole(u.user_metadata && u.user_metadata.role),
       created_at: u.created_at,
       is_you: u.id === callerId,
     }));
     return json({ users });
   }
 
-  // إضافة حساب (صلاحيات كاملة أو لجنة — عرض فقط)
+  // إضافة حساب (كامل / لجنة عرض / لجنة فتح)
   if (action === 'create') {
     const email = String(body.email || '').trim();
     const password = String(body.password || '');
     const full_name = String(body.full_name || '').trim();
-    const role = String(body.role || 'admin') === 'committee' ? 'committee' : 'admin';
+    const role = parseRole(body.role, 'admin');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'bad_email' }, 400);
     if (password.length < 8) return json({ error: 'weak_password' }, 400);
     const { data, error } = await db.auth.admin.createUser({
@@ -76,10 +76,10 @@ Deno.serve(async (req) => {
     return json({ id: data.user.id });
   }
 
-  // تغيير دور حساب (كامل / لجنة)
+  // تغيير دور حساب (كامل / لجنة عرض / لجنة فتح)
   if (action === 'update') {
     const id = String(body.id || '');
-    const role = String(body.role || '') === 'committee' ? 'committee' : 'admin';
+    const role = parseRole(body.role);
     if (!id || !role) return json({ error: 'bad_request' }, 400);
     if (id === callerId) return json({ error: 'cannot_change_self' }, 400);
     const { data: existing, error: getErr } = await db.auth.admin.getUserById(id);
@@ -110,4 +110,12 @@ function json(obj, status) {
     status,
     headers: { ...CORS, 'Content-Type': 'application/json' },
   });
+}
+
+// توحيد الدور: admin (كامل) | committee (عرض فقط) | opener (لجنة فتح الأظرفة)
+function parseRole(v: unknown, fallback = ''): string {
+  const r = String(v || '');
+  if (r === 'committee') return 'committee';
+  if (r === 'opener') return 'opener';
+  return fallback || 'admin';
 }

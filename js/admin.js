@@ -20,36 +20,39 @@
     const s = $('tender-search');
     if (s) s.addEventListener('input', debounce(() => { A.page = 1; A.loadTenders(); }, 300));
     A.page = 1;
-    A.loadTenders();
     checkSchema();
-    initRole();
+    initRole().then(() => A.loadTenders());
   };
 
-  // تحديد دور المستخدم الحالي (كامل الصلاحيات / لجنة عرض فقط)
+  // تحديد دور المستخدم: admin (كامل) | committee (لجنة عرض) | opener (لجنة فتح)
   async function initRole() {
     let role = 'admin';
     try {
       const { data: { user } } = await DB.auth.getUser();
-      if (user && user.user_metadata && user.user_metadata.role === 'committee') role = 'committee';
+      const r = user && user.user_metadata && user.user_metadata.role;
+      if (r === 'committee' || r === 'opener') role = r;
     } catch (e) { /* الافتراض: كامل */ }
     A.role = role;
-    if (role === 'committee') applyCommitteeMode();
+    if (role !== 'admin') applyRestrictedMode();
   }
 
-  function applyCommitteeMode() {
-    const badge = $('role-badge');
-    if (badge) badge.classList.remove('hidden');
-    // إخفاء تبويبي الإنشاء والحسابات
+  function applyRestrictedMode() {
+    // تبويبا الإنشاء والحسابات للإداري فقط
     document.querySelectorAll('.nav-btn[data-tab="tab-create"], .nav-btn[data-tab="tab-accounts"]').forEach((b) => b.remove());
     const navGrid = document.querySelector('.bottom-nav > div');
-    if (navGrid) navGrid.classList.replace('grid-cols-3', 'grid-cols-1');
-    // الانتقال المباشر إلى قائمة الاستشارات
-    if (window.switchTo) window.switchTo('tab-tenders');
+    if (navGrid) navGrid.classList.replace('grid-cols-4', 'grid-cols-2');
+    const badge = $('role-badge');
+    if (badge) {
+      badge.classList.remove('hidden');
+      badge.textContent = A.role === 'opener' ? '🔓 لجنة فتح الأظرفة' : '👁️ لجنة — عرض فقط';
+    }
+    // لجنة الفتح تفتح على صفحة الفتح، ولجنة العرض على القائمة
+    if (window.switchTo) window.switchTo(A.role === 'opener' ? 'tab-opening' : 'tab-tenders');
   }
 
-  function isCommittee() {
-    return A.role === 'committee';
-  }
+  function isAdmin() { return A.role !== 'committee' && A.role !== 'opener'; }
+  function canOpen() { return isAdmin() || A.role === 'opener'; }
+  function isCommittee() { return A.role === 'committee'; }
 
   // التحقق من أن قاعدة البيانات محدثة (الأعمدة الجديدة موجودة)
   async function checkSchema() {
@@ -80,7 +83,7 @@
   function bindCreate() {
     const form = $('create-form');
     if (!form) return;
-    if (isCommittee()) return;
+    if (!isAdmin()) return;
 
     $('f-file').addEventListener('change', (e) => {
       const f = e.target.files[0];
@@ -89,6 +92,7 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (!isAdmin()) return toast('الإنشاء متاح للإداري فقط', 'error');
       const ref = val('f-reference');
       const title = val('f-title');
       const duration = val('f-duration');
@@ -280,11 +284,11 @@
       '<div class="mt-3 grid grid-cols-2 gap-2">' +
       '<button data-act="qr" data-id="' + t.id + '" class="w-full btn-secondary">🔳 بطاقة QR</button>' +
       '<button data-act="downloads" data-id="' + t.id + '" class="w-full btn-secondary">👥 من حمّل (' + dl + ')</button>' +
-      (isPub && !isCommittee()
+      (isPub && canOpen()
         ? '<button data-act="replace" data-id="' + t.id + '" class="w-full btn-secondary">📄 تغيير دفتر الشروط</button>' +
           '<button data-act="open" data-id="' + t.id + '" class="w-full btn-danger">🔓 فتح الأظرفة</button>'
         : '') +
-      (!isCommittee()
+      (isAdmin()
         ? '<button data-act="delete" data-id="' + t.id + '" class="w-full btn-secondary !text-red-600">🗑️ حذف الاستشارة</button>'
         : '') +
       '</div>' +
@@ -292,13 +296,15 @@
     );
   }
 
-  // نقرات أزرار القائمة
+  // نقرات أزرار القائمة (قائمة الاستشارات + صفحة لجنة الفتح)
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
-    const list = $('tenders-list');
-    if (!list || !list.contains(btn)) return;
-    if (isCommittee() && !['qr', 'downloads'].includes(btn.dataset.act)) return;
+    const tl = $('tenders-list');
+    const ol = $('opening-list');
+    if (!((tl && tl.contains(btn)) || (ol && ol.contains(btn)))) return;
+    if (btn.dataset.act === 'open' && !canOpen()) return;
+    if ((btn.dataset.act === 'replace' || btn.dataset.act === 'delete') && !isAdmin()) return;
     DB.from('tenders').select('*').eq('id', btn.dataset.id).maybeSingle().then(({ data, error }) => {
       if (error || !data) return toast('فشل جلب الاستشارة', 'error');
       if (btn.dataset.act === 'qr') A.showQR(data);
@@ -308,6 +314,90 @@
       else if (btn.dataset.act === 'delete') askDelete(data);
     });
   });
+
+  /* ---------- لجنة فتح الأظرفة ---------- */
+
+  A.loadOpening = async function () {
+    const list = $('opening-list');
+    if (!list) return;
+    list.innerHTML = '<div class="text-center text-slate-400 text-sm py-6">⏳ جارٍ التحميل...</div>';
+    try {
+      const [tRes, uRes] = await Promise.all([
+        DB.from('tenders').select('*, downloads(count)').order('opening_date', { ascending: true }),
+        DB.functions.invoke('manage-users', { body: { action: 'list' } }),
+      ]);
+      const { data, error } = tRes;
+      if (error) throw error;
+
+      const userName = {};
+      const users = (uRes.data && uRes.data.users) || [];
+      users.forEach((u) => { userName[u.id] = u.full_name || u.email; });
+
+      const now = Date.now();
+      const rows = data || [];
+      const ready = rows.filter((t) => t.status === 'published' && new Date(t.opening_date).getTime() <= now);
+      const upcoming = rows.filter((t) => t.status === 'published' && new Date(t.opening_date).getTime() > now);
+      const opened = rows
+        .filter((t) => t.status === 'opened')
+        .sort((a, b) => new Date(b.opened_at) - new Date(a.opened_at))
+        .slice(0, 10);
+
+      const dl = (t) => (t.downloads && t.downloads[0] && t.downloads[0].count) || 0;
+
+      const card = (t, isReady) => (
+        '<div class="bg-white rounded-2xl shadow-sm border p-4 ' + (isReady ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200') + '">' +
+        '<div class="flex items-start justify-between gap-3">' +
+        '<div class="min-w-0">' +
+        '<div class="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">' + esc(t.reference) +
+        '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ' + (t.kind === 'tender' ? 'bg-indigo-50 text-indigo-700' : 'bg-teal-50 text-teal-700') + '">' + kindLabel(t.kind) + '</span>' +
+        '</div>' +
+        '<div class="text-sm text-slate-600 mt-0.5">' + esc(t.title) + '</div>' +
+        '<div class="text-xs text-slate-400 mt-1">فتح الأظرفة: ' + fmtDate(t.opening_date, true) +
+        (isReady ? ' — <b class="text-amber-700">حان الموعد</b>' : '') + '</div>' +
+        '</div>' +
+        '<div class="text-center shrink-0">' +
+        '<div class="text-xl font-black text-slate-700">' + dl(t) + '</div>' +
+        '<div class="text-[10px] text-slate-400">تحميل</div>' +
+        '</div>' +
+        '</div>' +
+        '<div class="mt-3 grid grid-cols-2 gap-2">' +
+        '<button data-act="downloads" data-id="' + t.id + '" class="w-full btn-secondary">👥 المتعاملون (' + dl(t) + ')</button>' +
+        (isReady && canOpen()
+          ? '<button data-act="open" data-id="' + t.id + '" class="w-full btn-danger">🔓 فتح الأظرفة</button>'
+          : '<span class="btn-secondary w-full opacity-60 flex items-center justify-center">🔒 بانتظار الموعد</span>') +
+        '</div>' +
+        '</div>'
+      );
+
+      const openedRow = (t) => (
+        '<div class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between gap-3">' +
+        '<div class="min-w-0">' +
+        '<div class="text-sm font-bold text-slate-700">' + esc(t.reference) + ' — ' + esc(t.title) + '</div>' +
+        '<div class="text-xs text-slate-400 mt-0.5">فُتحت: ' + fmtDate(t.opened_at, true) +
+        (t.opened_by ? ' • بواسطة: ' + esc(userName[t.opened_by] || 'غير معروف') : '') + '</div>' +
+        '</div>' +
+        '<button data-act="downloads" data-id="' + t.id + '" class="text-xs btn-secondary shrink-0">👥 ' + dl(t) + '</button>' +
+        '</div>'
+      );
+
+      let html = '';
+      if (ready.length) {
+        html += '<div class="text-xs font-bold text-amber-700 mb-1">⏰ جاهزة للفتح الآن</div>' + ready.map((t) => card(t, true)).join('');
+      }
+      if (upcoming.length) {
+        html += '<div class="text-xs font-bold text-slate-400 mt-4 mb-1">📅 قادمة</div>' + upcoming.map((t) => card(t, false)).join('');
+      }
+      if (opened.length) {
+        html += '<div class="text-xs font-bold text-slate-400 mt-4 mb-1">✅ ما فُتح</div>' + opened.map(openedRow).join('');
+      }
+      if (!ready.length && !upcoming.length && !opened.length) {
+        html = emptyState('لا توجد استشارات بعد', 'تظهر هنا الاستشارات المنشورة حسب موعد فتح الأظرفة');
+      }
+      list.innerHTML = html;
+    } catch (err) {
+      list.innerHTML = errorState(err);
+    }
+  };
 
   /* ---------- بطاقة QR ---------- */
 
@@ -426,7 +516,7 @@
   async function confirmOpen() {
     const t = openTender;
     if (!t) return;
-    if (isCommittee()) return toast('حساب اللجنة للعرض فقط — لا يمكن فتح الأظرفة', 'error');
+    if (!canOpen()) return toast('الفتح متاح للإداري ولجنة فتح الأظرفة فقط', 'error');
     if (val('open-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
 
     const btn = $('open-confirm-btn');
@@ -479,7 +569,7 @@
   async function confirmReplace() {
     const t = replaceTender;
     if (!t) return;
-    if (isCommittee()) return toast('حساب اللجنة للعرض فقط — لا يمكن تغيير الملف', 'error');
+    if (!isAdmin()) return toast('تغيير الملف متاح للإداري فقط', 'error');
     const f = $('replace-file').files[0];
     if (!f) return toast('اختر ملف PDF الجديد', 'error');
     if (f.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
@@ -550,7 +640,7 @@
   async function confirmDelete() {
     const t = deleteTender;
     if (!t) return;
-    if (isCommittee()) return toast('حساب اللجنة للعرض فقط — لا يمكن الحذف', 'error');
+    if (!isAdmin()) return toast('الحذف متاح للإداري فقط', 'error');
     if (val('delete-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
 
     const btn = $('delete-confirm-btn');
@@ -591,9 +681,10 @@
   function bindAccounts() {
     const form = $('account-form');
     if (!form) return;
-    if (isCommittee()) return;
+    if (!isAdmin()) return;
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (!isAdmin()) return toast('إدارة الحسابات متاحة للإداري فقط', 'error');
       const full_name = $('a-name').value.trim();
       const email = $('a-email').value.trim();
       const password = $('a-pass').value;
@@ -655,14 +746,18 @@
   };
 
   function accountCard(u) {
-    const roleBadge = u.role === 'committee'
-      ? '<span class="text-[10px] font-bold bg-indigo-50 text-indigo-700 rounded px-1.5 py-0.5">لجنة</span>'
-      : '<span class="text-[10px] font-bold bg-teal-50 text-teal-700 rounded px-1.5 py-0.5">كامل</span>';
-    const roleSelect = isCommittee() ? '' : (
+    const r = u.role === 'opener' ? 'opener' : u.role === 'committee' ? 'committee' : 'admin';
+    const roleBadge = {
+      admin: '<span class="text-[10px] font-bold bg-teal-50 text-teal-700 rounded px-1.5 py-0.5">كامل</span>',
+      committee: '<span class="text-[10px] font-bold bg-indigo-50 text-indigo-700 rounded px-1.5 py-0.5">لجنة عرض</span>',
+      opener: '<span class="text-[10px] font-bold bg-amber-50 text-amber-700 rounded px-1.5 py-0.5">لجنة فتح</span>',
+    }[r];
+    const roleSelect = !isAdmin() ? '' : (
       '<select data-role-select="' + u.id + '" ' + (u.is_you ? 'disabled title="لا يمكنك تغيير دورك الحالي"' : '') +
       ' class="text-[11px] border border-slate-200 rounded-lg px-1.5 py-1 bg-white">' +
-      '<option value="admin"' + (u.role !== 'committee' ? ' selected' : '') + '>صلاحيات كاملة</option>' +
-      '<option value="committee"' + (u.role === 'committee' ? ' selected' : '') + '>لجنة — عرض فقط</option>' +
+      '<option value="admin"' + (r === 'admin' ? ' selected' : '') + '>صلاحيات كاملة</option>' +
+      '<option value="committee"' + (r === 'committee' ? ' selected' : '') + '>لجنة — عرض فقط</option>' +
+      '<option value="opener"' + (r === 'opener' ? ' selected' : '') + '>لجنة فتح الأظرفة</option>' +
       '</select>'
     );
     return (
@@ -685,8 +780,9 @@
   }
 
   function changeRole(id, role, sel) {
-    if (!confirm('تغيير دور الحساب إلى «' + (role === 'committee' ? 'لجنة — عرض فقط' : 'صلاحيات كاملة') + '»؟')) {
-      sel.value = role === 'committee' ? 'admin' : 'committee';
+    const label = role === 'opener' ? 'لجنة فتح الأظرفة' : role === 'committee' ? 'لجنة — عرض فقط' : 'صلاحيات كاملة';
+    if (!confirm('تغيير دور الحساب إلى «' + label + '»؟')) {
+      A.refreshAccounts();
       return;
     }
     DB.functions.invoke('manage-users', { body: { action: 'update', id, role } }).then(({ data, error }) => {
