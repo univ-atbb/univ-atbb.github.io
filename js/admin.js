@@ -22,7 +22,34 @@
     A.page = 1;
     A.loadTenders();
     checkSchema();
+    initRole();
   };
+
+  // تحديد دور المستخدم الحالي (كامل الصلاحيات / لجنة عرض فقط)
+  async function initRole() {
+    let role = 'admin';
+    try {
+      const { data: { user } } = await DB.auth.getUser();
+      if (user && user.user_metadata && user.user_metadata.role === 'committee') role = 'committee';
+    } catch (e) { /* الافتراض: كامل */ }
+    A.role = role;
+    if (role === 'committee') applyCommitteeMode();
+  }
+
+  function applyCommitteeMode() {
+    const badge = $('role-badge');
+    if (badge) badge.classList.remove('hidden');
+    // إخفاء تبويبي الإنشاء والحسابات
+    document.querySelectorAll('.nav-btn[data-tab="tab-create"], .nav-btn[data-tab="tab-accounts"]').forEach((b) => b.remove());
+    const navGrid = document.querySelector('.bottom-nav > div');
+    if (navGrid) navGrid.classList.replace('grid-cols-3', 'grid-cols-1');
+    // الانتقال المباشر إلى قائمة الاستشارات
+    if (window.switchTo) window.switchTo('tab-tenders');
+  }
+
+  function isCommittee() {
+    return A.role === 'committee';
+  }
 
   // التحقق من أن قاعدة البيانات محدثة (الأعمدة الجديدة موجودة)
   async function checkSchema() {
@@ -53,6 +80,7 @@
   function bindCreate() {
     const form = $('create-form');
     if (!form) return;
+    if (isCommittee()) return;
 
     $('f-file').addEventListener('change', (e) => {
       const f = e.target.files[0];
@@ -252,11 +280,13 @@
       '<div class="mt-3 grid grid-cols-2 gap-2">' +
       '<button data-act="qr" data-id="' + t.id + '" class="w-full btn-secondary">🔳 بطاقة QR</button>' +
       '<button data-act="downloads" data-id="' + t.id + '" class="w-full btn-secondary">👥 من حمّل (' + dl + ')</button>' +
-      (isPub
+      (isPub && !isCommittee()
         ? '<button data-act="replace" data-id="' + t.id + '" class="w-full btn-secondary">📄 تغيير دفتر الشروط</button>' +
           '<button data-act="open" data-id="' + t.id + '" class="w-full btn-danger">🔓 فتح الأظرفة</button>'
         : '') +
-      '<button data-act="delete" data-id="' + t.id + '" class="w-full btn-secondary !text-red-600">🗑️ حذف الاستشارة</button>' +
+      (!isCommittee()
+        ? '<button data-act="delete" data-id="' + t.id + '" class="w-full btn-secondary !text-red-600">🗑️ حذف الاستشارة</button>'
+        : '') +
       '</div>' +
       '</div>'
     );
@@ -268,6 +298,7 @@
     if (!btn) return;
     const list = $('tenders-list');
     if (!list || !list.contains(btn)) return;
+    if (isCommittee() && !['qr', 'downloads'].includes(btn.dataset.act)) return;
     DB.from('tenders').select('*').eq('id', btn.dataset.id).maybeSingle().then(({ data, error }) => {
       if (error || !data) return toast('فشل جلب الاستشارة', 'error');
       if (btn.dataset.act === 'qr') A.showQR(data);
@@ -395,6 +426,7 @@
   async function confirmOpen() {
     const t = openTender;
     if (!t) return;
+    if (isCommittee()) return toast('حساب اللجنة للعرض فقط — لا يمكن فتح الأظرفة', 'error');
     if (val('open-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
 
     const btn = $('open-confirm-btn');
@@ -447,6 +479,7 @@
   async function confirmReplace() {
     const t = replaceTender;
     if (!t) return;
+    if (isCommittee()) return toast('حساب اللجنة للعرض فقط — لا يمكن تغيير الملف', 'error');
     const f = $('replace-file').files[0];
     if (!f) return toast('اختر ملف PDF الجديد', 'error');
     if (f.type !== 'application/pdf') return toast('الملف يجب أن يكون PDF', 'error');
@@ -517,6 +550,7 @@
   async function confirmDelete() {
     const t = deleteTender;
     if (!t) return;
+    if (isCommittee()) return toast('حساب اللجنة للعرض فقط — لا يمكن الحذف', 'error');
     if (val('delete-ref-input') !== t.reference) return toast('رقم الاستشارة غير مطابق', 'error');
 
     const btn = $('delete-confirm-btn');
@@ -557,18 +591,21 @@
   function bindAccounts() {
     const form = $('account-form');
     if (!form) return;
+    if (isCommittee()) return;
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const full_name = $('a-name').value.trim();
       const email = $('a-email').value.trim();
       const password = $('a-pass').value;
+      const roleEl = document.querySelector('input[name="a-role"]:checked');
+      const role = roleEl ? roleEl.value : 'admin';
       if (!full_name || !email || !password) return toast('أكمل جميع الحقول', 'error');
       if (password.length < 8) return toast('كلمة المرور: 8 أحرف على الأقل', 'error');
       const btn = form.querySelector('button[type=submit]');
       setBusy(btn, true, '⏳ جارٍ الإضافة...');
       try {
         const { data, error } = await DB.functions.invoke('manage-users', {
-          body: { action: 'create', full_name, email, password },
+          body: { action: 'create', full_name, email, password, role },
         });
         if (error) throw error;
         if (!data || data.error) {
@@ -606,6 +643,11 @@
       list.querySelectorAll('[data-del]').forEach((b) =>
         b.addEventListener('click', () => deleteAccount(b.dataset.del, b.dataset.email))
       );
+      if (!isCommittee()) {
+        list.querySelectorAll('[data-role-select]').forEach((sel) =>
+          sel.addEventListener('change', () => changeRole(sel.dataset.roleSelect, sel.value, sel))
+        );
+      }
     } catch (err) {
       console.error(err);
       list.innerHTML = errorState(err);
@@ -613,19 +655,46 @@
   };
 
   function accountCard(u) {
+    const roleBadge = u.role === 'committee'
+      ? '<span class="text-[10px] font-bold bg-indigo-50 text-indigo-700 rounded px-1.5 py-0.5">لجنة</span>'
+      : '<span class="text-[10px] font-bold bg-teal-50 text-teal-700 rounded px-1.5 py-0.5">كامل</span>';
+    const roleSelect = isCommittee() ? '' : (
+      '<select data-role-select="' + u.id + '" ' + (u.is_you ? 'disabled title="لا يمكنك تغيير دورك الحالي"' : '') +
+      ' class="text-[11px] border border-slate-200 rounded-lg px-1.5 py-1 bg-white">' +
+      '<option value="admin"' + (u.role !== 'committee' ? ' selected' : '') + '>صلاحيات كاملة</option>' +
+      '<option value="committee"' + (u.role === 'committee' ? ' selected' : '') + '>لجنة — عرض فقط</option>' +
+      '</select>'
+    );
     return (
       '<div class="bg-white rounded-xl border border-slate-200 p-3 flex items-center justify-between gap-2">' +
       '<div class="min-w-0">' +
-      '<div class="font-bold text-sm text-slate-800">' + esc(u.full_name || u.email) +
+      '<div class="font-bold text-sm text-slate-800 flex items-center gap-1.5 flex-wrap">' + esc(u.full_name || u.email) +
+      roleBadge +
       (u.is_you ? ' <span class="text-[10px] text-teal-600 font-bold">(أنت)</span>' : '') + '</div>' +
       '<div class="text-xs text-slate-400" dir="ltr">' + esc(u.email) + '</div>' +
-      '<div class="text-[10px] text-slate-400 mt-0.5">صلاحيات كاملة • أُنشئ في ' + fmtDate(u.created_at) + '</div>' +
+      '<div class="text-[10px] text-slate-400 mt-0.5">أُنشئ في ' + fmtDate(u.created_at) + '</div>' +
       '</div>' +
       (u.is_you
         ? ''
-        : '<button data-del="' + u.id + '" data-email="' + esc(u.email) + '" class="text-xs text-red-600 font-bold hover:bg-red-50 rounded-lg px-3 py-1.5 whitespace-nowrap">حذف</button>') +
+        : '<div class="flex flex-col items-end gap-1.5">' +
+          roleSelect +
+          '<button data-del="' + u.id + '" data-email="' + esc(u.email) + '" class="text-xs text-red-600 font-bold hover:bg-red-50 rounded-lg px-3 py-1 whitespace-nowrap">حذف</button>' +
+          '</div>') +
       '</div>'
     );
+  }
+
+  function changeRole(id, role, sel) {
+    if (!confirm('تغيير دور الحساب إلى «' + (role === 'committee' ? 'لجنة — عرض فقط' : 'صلاحيات كاملة') + '»؟')) {
+      sel.value = role === 'committee' ? 'admin' : 'committee';
+      return;
+    }
+    DB.functions.invoke('manage-users', { body: { action: 'update', id, role } }).then(({ data, error }) => {
+      if (error) return toast('فشل التغيير: ' + (error.message || error), 'error', 5000);
+      if (data && data.error === 'cannot_change_self') return toast('لا يمكنك تغيير دورك الحالي', 'error');
+      toast('✅ تم تغيير الدور', 'success');
+      A.refreshAccounts();
+    });
   }
 
   function deleteAccount(id, email) {

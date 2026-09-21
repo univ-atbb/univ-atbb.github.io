@@ -91,6 +91,7 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <span id="role-badge" class="hidden text-[10px] font-bold bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5">👁️ لجنة — عرض فقط</span>
           <span id="user-name" class="text-[11px] text-teal-100" dir="ltr"></span>
           <button id="logout-btn" class="text-xs bg-teal-900/40 hover:bg-teal-900/60 rounded-lg px-3 py-1 font-semibold">تسجيل الخروج</button>
         </div>
@@ -170,6 +171,14 @@
             <input id="a-name" class="inp" type="text" placeholder="الاسم الكامل" required>
             <input id="a-email" class="inp" type="email" dir="ltr" placeholder="email@univ.dz" required>
             <input id="a-pass" class="inp" type="password" dir="ltr" placeholder="كلمة مرور (8 أحرف على الأقل)" required minlength="8">
+            <div>
+              <label class="lbl">نوع الحساب</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="kind-opt"><input type="radio" name="a-role" value="admin" class="sr-only" checked>🔑 صلاحيات كاملة</label>
+                <label class="kind-opt"><input type="radio" name="a-role" value="committee" class="sr-only">👁️ لجنة — عرض فقط</label>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">اللجنة تشاهد الاستشارات وسجل التحميلات فقط (لا إنشاء ولا فتح ولا حذف)</p>
+            </div>
             <button type="submit" class="btn-primary w-full">➕ إضافة الحساب</button>
           </form>
         </div>
