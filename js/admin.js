@@ -210,6 +210,8 @@
   function bindStaticButtons() {
     const csvBtn = $('dl-csv');
     if (csvBtn) csvBtn.addEventListener('click', exportCsv);
+    const pdfBtn = $('dl-pdf');
+    if (pdfBtn) pdfBtn.addEventListener('click', exportPdf);
     const printBtn = $('print-qr-btn');
     if (printBtn) printBtn.addEventListener('click', () => window.print());
     const openBtn = $('open-confirm-btn');
@@ -499,6 +501,47 @@
   function csvCell(v) {
     v = String(v == null ? '' : v);
     return /[",\n]/.test(v) ? '"' + v.replaceAll('"', '""') + '"' : v;
+  }
+
+  // تصدير سجل التحميلات كـ PDF (نسخة مطبوعة عربية — «حفظ كـ PDF» من مربع الطباعة)
+  async function exportPdf() {
+    if (!dlTender) return;
+    const { data, error } = await DB.from('downloads')
+      .select('*')
+      .eq('tender_id', dlTender.id)
+      .order('downloaded_at', { ascending: true });
+    if (error) return toast('فشل التصدير', 'error');
+    if (!data || !data.length) return toast('لا توجد سجلات للتصدير', 'error');
+    const rows = data.map((d, i) =>
+      '<tr><td>' + (i + 1) + '</td><td>' + esc(d.company) + '</td><td dir="ltr">' + esc(d.phone) + '</td>' +
+      '<td dir="ltr">' + esc(d.email) + '</td><td dir="ltr">' + esc(d.ip_address || '—') + '</td>' +
+      '<td>' + fmtDate(d.downloaded_at, true) + '</td></tr>'
+    ).join('');
+    const html =
+      '<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8">' +
+      '<title>سجل التحميلات — ' + esc(dlTender.reference) + '</title>' +
+      '<style>' +
+      'body{font-family:"Segoe UI",Tahoma,Arial,sans-serif;margin:24px;color:#1e293b}' +
+      'h1{font-size:17px;margin:0 0 2px}' +
+      '.sub{font-size:12px;color:#475569;margin:0 0 14px}' +
+      'table{width:100%;border-collapse:collapse;font-size:11.5px}' +
+      'th,td{border:1px solid #cbd5e1;padding:5px 8px;text-align:right}' +
+      'th{background:#f0fdfa;color:#0f766e}' +
+      '.foot{margin-top:18px;font-size:11px;color:#64748b;display:flex;justify-content:space-between}' +
+      '@media print{body{margin:12px}}' +
+      '</style></head><body>' +
+      '<h1>جامعة عين تموشنت بلحاج بوشعيب — مكتب الصفقات</h1>' +
+      '<p class="sub">سجل تحميل دفتر الشروط — ' + kindLabel(dlTender.kind) + ' عدد: ' + esc(dlTender.reference) + ' — ' + esc(dlTender.title) +
+      ' &nbsp;|&nbsp; عدد السجلات: ' + data.length + ' &nbsp;|&nbsp; تاريخ الطباعة: ' + fmtDate(new Date().toISOString(), true) + '</p>' +
+      '<table><thead><tr><th>#</th><th>المؤسسة</th><th>الهاتف</th><th>البريد</th><th>IP</th><th>آخر تحميل</th></tr></thead><tbody>' +
+      rows + '</tbody></table>' +
+      '<div class="foot"><span>وثيقة داخلية — مكتب الصفقات</span><span>التوقيع: ........................</span></div>' +
+      '<script>window.onload=function(){setTimeout(function(){window.print()},250)}<\/script>' +
+      '</body></html>';
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return toast('سمِّح بالنوافذ المنبثقة ثم أعد المحاولة', 'error');
+    w.document.write(html);
+    w.document.close();
   }
 
   /* ---------- فتح الأظرفة ---------- */

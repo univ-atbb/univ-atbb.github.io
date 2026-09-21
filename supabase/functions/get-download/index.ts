@@ -145,20 +145,49 @@ Deno.serve(async (req) => {
     return json({ error: 'unavailable' }, 404);
   }
 
-  // 2) تسجيل بيانات المتعامل
+  // 2) تسجيل/تحديث بيانات المتعامل — سجل فريد لكل هاتف (يمنع التكرار عند إعادة التحميل)
   const ip =
     (req.headers.get('cf-connecting-ip') ||
       req.headers.get('x-forwarded-for') ||
       '').split(',')[0].trim() || null;
-  const { error: dErr } = await db.from('downloads').insert({
-    tender_id: tenderId,
-    company,
-    phone,
-    email,
-    ip_address: ip,
-    user_agent: (req.headers.get('user-agent') || '').slice(0, 500),
-  });
-  if (dErr) return json({ error: 'record_failed' }, 500);
+  const ua = (req.headers.get('user-agent') || '').slice(0, 500);
+
+  // تطبيع الهاتف: أرقام فقط، بدون 213 وبدون الصفر الأول (آخر 9 خانات)
+  const norm = (p: string) => {
+    let d = p.replace(/\D/g, '');
+    if (d.startsWith('213')) d = d.slice(3);
+    if (d.startsWith('0')) d = d.slice(1);
+    return d.slice(-9);
+  };
+  const phoneKey = norm(phone);
+
+  let isUpdate = false;
+  const { data: existing, error: qErr } = await db
+    .from('downloads')
+    .select('id, phone')
+    .eq('tender_id', tenderId);
+  if (!qErr && existing && existing.length) {
+    const match = existing.find((r: any) => norm(String(r.phone)) === phoneKey);
+    if (match) {
+      const { error: uErr } = await db
+        .from('downloads')
+        .update({ company, email, ip_address: ip, user_agent: ua, downloaded_at: new Date().toISOString() })
+        .eq('id', match.id);
+      if (uErr) return json({ error: 'record_failed' }, 500);
+      isUpdate = true;
+    } else {
+      const { error: iErr } = await db.from('downloads').insert({
+        tender_id: tenderId, company, phone, email, ip_address: ip, user_agent: ua,
+      });
+      if (iErr) return json({ error: 'record_failed' }, 500);
+    }
+  } else {
+    // تعذر الجلب المسبق — نكتفي بالإدراج
+    const { error: iErr } = await db.from('downloads').insert({
+      tender_id: tenderId, company, phone, email, ip_address: ip, user_agent: ua,
+    });
+    if (iErr) return json({ error: 'record_failed' }, 500);
+  }
 
   // اسم الملف عند التحميل (لاتيني لتوافق كل الأجهزة)
   const safeRef = String(tender.reference).replace(/[^0-9A-Za-z._-]+/g, '-');
@@ -191,7 +220,7 @@ Deno.serve(async (req) => {
       url = s.signedUrl;
     }
 
-    return json({ url, reference: tender.reference, expires_in: 600 }, 200);
+    return json({ url, reference: tender.reference, expires_in: 600, updated: isUpdate }, 200);
   } catch (err: any) {
     if (String((err && err.message) || err) === 'r2_not_configured') {
       return json({ error: 'r2_not_configured' }, 503);
