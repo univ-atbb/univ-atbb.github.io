@@ -107,6 +107,75 @@ function json(obj: any, status = 200) {
   });
 }
 
+/* ---------- بريد الإيصال التلقائي (Brevo — خطة مجانية) ----------
+   يُفعَّل تلقائيًا عند ضبط السرّين: BREVO_API_KEY + BREVO_FROM
+   (BREVO_FROM = البريد المسجَّل في حساب Brevo — الخطة المجانية تلتزم به)
+   فشل البريد لا يوقف التحميل أبدًا. */
+
+function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]
+  );
+}
+
+async function sendReceiptEmail(opts: {
+  email: string;
+  company: string;
+  phone: string;
+  kind: string;
+  reference: string;
+  title: string;
+}): Promise<void> {
+  const apiKey = Deno.env.get('BREVO_API_KEY');
+  const from = Deno.env.get('BREVO_FROM') || '';
+  if (!apiKey || !from || !opts.email) return;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(opts.email)) return;
+  try {
+    const kindName = opts.kind === 'tender' ? 'طلب عروض' : 'استشارة';
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('ar-DZ', { year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('ar-DZ', { hour: '2-digit', minute: '2-digit' });
+    const subject = 'إيصال تحميل — ' + kindName + ' ' + opts.reference;
+    const row = (l: string, v: string) =>
+      '<tr><td style="padding:6px 10px;border:1px solid #e2e8f0;color:#64748b;white-space:nowrap">' + l +
+      '</td><td style="padding:6px 10px;border:1px solid #e2e8f0;font-weight:bold;color:#0f172a">' + v + '</td></tr>';
+    const html =
+      '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;max-width:520px;margin:auto;background:#f8fafc;border-radius:12px;overflow:hidden">' +
+      '<div style="background:#0f766e;color:#fff;padding:14px 20px;text-align:center">' +
+      '<div style="font-size:15px;font-weight:bold">جامعة عين تموشنت بلحاج بوشعيب</div>' +
+      '<div style="font-size:12px;opacity:.85">مكتب الصفقات — إيصال تحميل إلكتروني</div></div>' +
+      '<div style="padding:20px">' +
+      '<p style="margin:0 0 12px;font-size:14px;color:#334155">تم تسجيل تحميل دفتر الشروط بنجاح. نرجو الاحتفاظ بهذا الإيصال.</p>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      row('النوع', kindName) +
+      row('المرجع', escapeHtml(opts.reference)) +
+      row('العنوان', escapeHtml(opts.title)) +
+      row('الشركة', escapeHtml(opts.company)) +
+      row('الهاتف', escapeHtml(opts.phone)) +
+      row('التاريخ', dateStr + ' — ' + timeStr) +
+      '</table>' +
+      '<p style="margin:14px 0 0;font-size:11px;color:#94a3b8">هذا بريد آلي من بوابة مكتب الصفقات — لا حاجة للرد.</p>' +
+      '</div></div>';
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        sender: { name: 'مكتب الصفقات', email: from },
+        to: [{ email: opts.email, name: opts.company || undefined }],
+        subject,
+        htmlContent: html,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => '');
+      console.error('brevo error', res.status, t);
+    }
+  } catch (e) {
+    console.error('brevo failed', e);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
@@ -138,7 +207,7 @@ Deno.serve(async (req) => {
   // 1) تحقق: الاستشارة موجودة ومنشورة
   const { data: tender, error: tErr } = await db
     .from('tenders')
-    .select('id, reference, pdf_path, pdf_source, status, opening_date')
+    .select('id, reference, kind, title, pdf_path, pdf_source, status, opening_date')
     .eq('id', tenderId)
     .maybeSingle();
   if (tErr || !tender || tender.status !== 'published') {
@@ -219,6 +288,16 @@ Deno.serve(async (req) => {
       if (sErr || !s) return json({ error: 'link_failed' }, 500);
       url = s.signedUrl;
     }
+
+    // 4) إيصال بريدي تلقائي (جهد — لا يوقف التحميل)
+    await sendReceiptEmail({
+      email,
+      company,
+      phone,
+      kind: String(tender.kind),
+      reference: String(tender.reference),
+      title: String(tender.title || ''),
+    });
 
     return json({ url, reference: tender.reference, expires_in: 600, updated: isUpdate }, 200);
   } catch (err: any) {
