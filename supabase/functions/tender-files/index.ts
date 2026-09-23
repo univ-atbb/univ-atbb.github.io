@@ -166,6 +166,11 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await db.auth.getUser(token);
   if (userErr || !userData || !userData.user) return json({ error: 'unauthorized' }, 401);
   const userId = userData.user.id;
+  const callerRole: string = (() => {
+    const u: any = userData.user;
+    const r = (u && ((u.app_metadata && u.app_metadata.role) || (u.user_metadata && u.user_metadata.role))) || '';
+    return r === 'committee' || r === 'opener' ? r : 'admin';
+  })();
 
   let body: any;
   try {
@@ -177,6 +182,17 @@ Deno.serve(async (req) => {
   try {
     const action = String(body.action || '');
     const tenderId = String(body.tender_id || '');
+
+    // صلاحيات العمليات: الإنشاء/الاستبدال/الحذف للإداري فقط — الفتح للإداري ولجنة الفتح
+    if (
+      (action === 'prepare-upload' || action === 'finalize-upload' || action === 'cancel-upload' ||
+        action === 'prepare-replace' || action === 'delete-tender') && callerRole !== 'admin'
+    ) {
+      return json({ error: 'forbidden' }, 403);
+    }
+    if (action === 'open-tender' && callerRole === 'committee') {
+      return json({ error: 'forbidden' }, 403);
+    }
 
     /* ----- 1) تجهيز الرفع ----- */
     if (action === 'prepare-upload') {
