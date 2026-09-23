@@ -8,20 +8,21 @@
 -- ============================================================
 
 -- ------------------------------------------------------------
--- 1) نقل الدور إلى app_metadata (للمستخدمين الحاليين)
+-- 1) نقل الدور إلى raw_app_meta_data (للمستخدمين الحاليين)
+--    (لا يستطيع المستخدم كتابة هذا العمود من المتصفح)
 -- ------------------------------------------------------------
 update auth.users
-set app_metadata = coalesce(app_metadata, '{}'::jsonb)
-                     || jsonb_build_object('role', user_metadata->>'role')
-where user_metadata ? 'role'
-  and user_metadata->>'role' in ('admin', 'committee', 'opener');
+set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
+                           || jsonb_build_object('role', raw_user_meta_data->>'role')
+where raw_user_meta_data ? 'role'
+  and raw_user_meta_data->>'role' in ('admin', 'committee', 'opener');
 
 -- ------------------------------------------------------------
--- 2) إزالة الدور من user_metadata (كان قابلًا للتعديل من المتصفح)
+-- 2) إزالة الدور من raw_user_meta_data (كان قابلًا للتعديل من المتصفح)
 -- ------------------------------------------------------------
 update auth.users
-set user_metadata = user_metadata - 'role'
-where user_metadata ? 'role';
+set raw_user_meta_data = raw_user_meta_data - 'role'
+where raw_user_meta_data ? 'role';
 
 -- ------------------------------------------------------------
 -- 3) جدول الاستشارات: الكتابة حسب الدور
