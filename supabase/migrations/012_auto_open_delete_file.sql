@@ -68,4 +68,17 @@ grant select on public.tenders_public to anon, authenticated;
 -- ============================================================
 --  تحقق اختياري — يجب أن تظهر سطر auto-open-tenders:
 --    select jobname, schedule from cron.job;
+--
+--  ملاحظة مهمة: محرر SQL يشغّل السكربت داخل معاملة واحدة،
+--  وهذا يمنع cron.schedule داخل كتلة DO. إن كانت cron.job
+--  فارغة بعد التشغيل، شغّل هذه الجملة وحدها (Run منفرد):
+--    select cron.schedule('auto-open-tenders', '* * * * *',
+--      'delete from storage.objects so using public.tenders t
+--       where t.status = ''published'' and t.opening_date is not null
+--         and t.opening_date <= now() and t.pdf_path is not null
+--         and coalesce(t.pdf_source, ''supabase'') = ''supabase''
+--         and so.bucket_id = ''tenders'' and so.name = t.pdf_path;
+--       update public.tenders set status = ''opened'', opened_at = now()
+--       where status = ''published'' and opening_date is not null
+--         and opening_date <= now();');
 -- ============================================================
