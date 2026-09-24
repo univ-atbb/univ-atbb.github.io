@@ -1,5 +1,5 @@
 # ============================================================
-#  رؤوس أمنية لموقع GitHub Pages (اللوحة + صفحة المتعامل /bm)
+#  Security headers for GitHub Pages (panel + public /bm)
 # ============================================================
 X-Content-Type-Options: nosniff
 X-Frame-Options: DENY
