@@ -298,7 +298,7 @@
       openingCountdownHtml() +
       '<div class="grid grid-cols-2 gap-2 mb-4 text-xs">' +
       '<div class="bg-slate-50 rounded-xl px-3 py-2.5"><div class="text-slate-400 text-[10px] mb-1">' + t('f_duration').replace(' *', '') + '</div><div class="text-slate-700 font-semibold">' + esc(tender.duration || '—') + '</div></div>' +
-      '<div class="bg-slate-50 rounded-xl px-3 py-2.5"><div class="text-slate-400 text-[10px] mb-1">' + openingLabel + '</div><div class="text-slate-700 font-semibold" dir="auto">' + fmtDate(tender.opening_date, true) + '</div></div>' +
+      (tender.opening_date ? '<div class="bg-slate-50 rounded-xl px-3 py-2.5"><div class="text-slate-400 text-[10px] mb-1">' + openingLabel + '</div><div class="text-slate-700 font-semibold" dir="auto">' + fmtDate(tender.opening_date, true) + '</div></div>' : '') +
       '</div>' +
       '<form id="bidder-form" class="space-y-3">' +
       stepBlock(2, t('step2')) +

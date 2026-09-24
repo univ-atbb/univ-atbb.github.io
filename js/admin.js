@@ -293,19 +293,16 @@
       const ref = val('f-reference');
       const title = val('f-title');
       const duration = val('f-duration');
-      const opening = val('f-opening');
       const file = $('f-file').files[0];
       const kindEl = document.querySelector('input[name="f-kind"]:checked');
       const kind = kindEl ? kindEl.value : 'consultation';
 
-      if (!ref.trim() || !title.trim() || !opening || !file) return toast(t('t_fill_all'), 'error');
+      if (!ref.trim() || !title.trim() || !file) return toast(t('t_fill_all'), 'error');
       if (file.type !== 'application/pdf') return toast(t('t_pdf_only'), 'error');
       if (file.size > 50 * 1024 * 1024) return toast(t('t_too_big'), 'error');
       if (ref.trim().length > 50) return toast(t('t_ref_long'), 'error');
       if (title.trim().length > 200) return toast(t('t_title_long'), 'error');
       if (duration.length > 100) return toast(t('t_duration_long'), 'error');
-      if (isNaN(new Date(opening).getTime())) return toast(t('t_bad_date'), 'error');
-
       // التحقق من أن الرقم غير مستخدم
       const dup = await DB.from('tenders').select('id').eq('reference', ref.trim()).maybeSingle();
       if (dup.data) return toast(t('t_dup_ref', { ref: ref.trim() }), 'error', 5000);
@@ -338,7 +335,7 @@
               reference: ref.trim(),
               title: title.trim(),
               duration: duration.trim(),
-              opening_date: officeWallToISO(opening) || new Date(opening).toISOString(),
+              opening_date: null,
             },
           });
           if (fin.error) throw fin.error;
@@ -365,7 +362,7 @@
             reference: ref.trim(),
             title: title.trim(),
             duration: duration.trim() || null,
-            opening_date: new Date(opening).toISOString(),
+            opening_date: null,
             pdf_path: pdfPath,
             pdf_source: 'supabase',
             status: 'published',
@@ -385,7 +382,7 @@
           reference: ref.trim(),
           title: title.trim(),
           duration: duration.trim() || null,
-          opening_date: new Date(opening).toISOString(),
+          opening_date: null,
         });
       } catch (err) {
         console.error(err);
@@ -440,9 +437,6 @@
     if (kindInput) kindInput.checked = true;
     $('e-title').value = tt.title || '';
     $('e-duration').value = tt.duration || '';
-    const d = new Date(tt.opening_date);
-    if (isNaN(d.getTime())) $('e-opening').value = '';
-    else $('e-opening').value = isoToOfficeWall(tt.opening_date);
     openModal('edit-modal');
   }
 
@@ -455,18 +449,16 @@
       const id = $('e-id').value;
       const title = val('e-title').trim();
       const duration = val('e-duration').trim();
-      const opening = val('e-opening');
       const kindEl = document.querySelector('input[name="e-kind"]:checked');
       const kind = kindEl ? kindEl.value : 'consultation';
-      if (!id || !title || !opening) return toast(t('t_fill_all'), 'error');
+      if (!id || !title) return toast(t('t_fill_all'), 'error');
       if (title.length > 200) return toast(t('t_title_long'), 'error');
       if (duration.length > 100) return toast(t('t_duration_long'), 'error');
-      if (isNaN(new Date(opening).getTime())) return toast(t('t_bad_date'), 'error');
       const btn = $('edit-btn');
       setBusy(btn, true, t('busy_edit'));
       try {
         const { error } = await DB.from('tenders')
-          .update({ kind, title, duration, opening_date: officeWallToISO(opening) || new Date(opening).toISOString() })
+          .update({ kind, title, duration })
           .eq('id', id);
         if (error) throw error;
         toast(t('t_edit_saved'), 'success');
@@ -527,11 +519,11 @@
       statusBadge(tt.status) +
       '</div>' +
       '<div class="mt-3 grid grid-cols-2 gap-2 text-sm">' +
-      '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
+      (tt.opening_date ? '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
       '<div class="text-xs text-slate-400">' + t('card_opening_l') + '</div>' +
       '<div class="text-slate-700">' + fmtDate(tt.opening_date, true) + '</div>' +
       (tt.opened_at ? '<div class="text-xs text-slate-400">' + t('card_opened_at', { d: fmtDate(tt.opened_at, true) }) + '</div>' : '') +
-      '</div>' +
+      '</div>' : '') +
       '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
       '<div class="text-xs text-slate-400">' + t('card_downloads_l') + '</div>' +
       '<div class="text-slate-700 font-bold">' + dl + '</div>' +
@@ -671,6 +663,8 @@
     $('qr-title').textContent = t.title;
     $('qr-duration').textContent = t.duration || '—';
     $('qr-opening').textContent = fmtDate(t.opening_date, true);
+    const qob = $('qr-op-box');
+    if (qob) qob.style.display = t.opening_date ? '' : 'none';
 
     // رابط QR: رمز قصير من أرقام المرجع (01/2026 → ?c=012026) — وUUID كامل احتياطًا
     const configured = (window.TENDER_CONFIG || {}).PUBLIC_BASE_URL;
