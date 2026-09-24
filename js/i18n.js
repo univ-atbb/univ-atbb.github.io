@@ -6,10 +6,10 @@
 (function () {
   const DICT = {
     ar: {
-      univ: 'كلية العلوم و التكنولوجيا',
+      univ: 'جامعة عين تموشنت - كلية العلوم و التكنولوجيا',
       office: 'مكتب الصفقات',
       app_name: 'بوابة مكتب الصفقات',
-      app_title: 'كلية العلوم و التكنولوجيا — بوابة مكتب الصفقات',
+      app_title: 'جامعة عين تموشنت - كلية العلوم و التكنولوجيا — بوابة مكتب الصفقات',
 
       // شريط الإعداد
       setup_title: '⚙️ التطبيق غير موصول بقاعدة البيانات',
@@ -258,7 +258,7 @@
 
       // PDF
       pdf_doc_title: 'سجل التحميلات — {ref}',
-      pdf_h1: 'كلية العلوم و التكنولوجيا — مكتب الصفقات',
+      pdf_h1: 'جامعة عين تموشنت - كلية العلوم و التكنولوجيا — مكتب الصفقات',
       pdf_sub: 'سجل تحميل دفتر الشروط — {kind} عدد: {ref} — {title} &nbsp;|&nbsp; عدد السجلات: {n} &nbsp;|&nbsp; تاريخ الطباعة: {d}',
       pdf_th: ['#', 'المؤسسة', 'الهاتف', 'البريد', 'IP', 'آخر تحميل'],
       pdf_foot1: 'وثيقة داخلية — مكتب الصفقات',
@@ -307,10 +307,10 @@
     },
 
     fr: {
-      univ: 'Faculté des Sciences et de la Technologie',
+      univ: 'Université Aïn Témouchent - Faculté des Sciences et de la Technologie',
       office: 'Bureau des marchés',
       app_name: 'Portail du bureau des marchés',
-      app_title: 'Faculté des Sciences et de la Technologie — Portail du bureau des marchés',
+      app_title: 'Université Aïn Témouchent - Faculté des Sciences et de la Technologie — Portail du bureau des marchés',
 
       setup_title: "⚙️ L'application n'est pas connectée à la base de données",
       setup_s1: 'Créez un projet gratuit sur <span dir="ltr">supabase.com</span>',
@@ -544,7 +544,7 @@
       cd_expire_in: 'Expiré',
 
       pdf_doc_title: 'Registre des téléchargements — {ref}',
-      pdf_h1: 'Faculté des Sciences et de la Technologie — Bureau des marchés',
+      pdf_h1: 'Université Aïn Témouchent - Faculté des Sciences et de la Technologie — Bureau des marchés',
       pdf_sub: "Registre de téléchargement du cahier des charges — {kind} N° : {ref} — {title} &nbsp;|&nbsp; Enregistrements : {n} &nbsp;|&nbsp; Date d'impression : {d}",
       pdf_th: ['#', 'Organisme', 'Téléphone', 'E-mail', 'IP', 'Dernier téléchargement'],
       pdf_foot1: 'Document interne — Bureau des marchés',

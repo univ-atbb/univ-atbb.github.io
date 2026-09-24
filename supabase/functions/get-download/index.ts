@@ -147,7 +147,7 @@ async function sendReceiptEmail(opts: {
     const html =
       '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;max-width:520px;margin:auto;background:#f8fafc;border-radius:12px;overflow:hidden">' +
       '<div style="background:#0f766e;color:#fff;padding:14px 20px;text-align:center">' +
-      '<div style="font-size:15px;font-weight:bold">كلية العلوم و التكنولوجيا</div>' +
+      '<div style="font-size:15px;font-weight:bold">جامعة عين تموشنت - كلية العلوم و التكنولوجيا</div>' +
       '<div style="font-size:12px;opacity:.85">مكتب الصفقات — إيصال تحميل إلكتروني</div></div>' +
       '<div style="padding:20px">' +
       '<p style="margin:0 0 12px;font-size:14px;color:#334155">تم تسجيل تحميل دفتر الشروط بنجاح. نرجو الاحتفاظ بهذا الإيصال.</p>' +
