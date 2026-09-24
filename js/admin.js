@@ -191,8 +191,7 @@
       badge.classList.remove('hidden');
       badge.textContent = A.role === 'opener' ? t('role_opener_badge') : t('role_committee_badge');
     }
-    // لجنة الفتح تفتح على صفحة الفتح، ولجنة العرض على القائمة
-    if (window.switchTo) window.switchTo(A.role === 'opener' ? 'tab-opening' : 'tab-tenders');
+    if (window.switchTo) window.switchTo('tab-tenders');
   }
 
   // إعادة ترجمة شارة الدور عند تبديل اللغة
@@ -293,16 +292,19 @@
       const ref = val('f-reference');
       const title = val('f-title');
       const duration = val('f-duration');
+      const opening = val('f-opening');
       const file = $('f-file').files[0];
       const kindEl = document.querySelector('input[name="f-kind"]:checked');
       const kind = kindEl ? kindEl.value : 'consultation';
 
-      if (!ref.trim() || !title.trim() || !file) return toast(t('t_fill_all'), 'error');
+      if (!ref.trim() || !title.trim() || !opening || !file) return toast(t('t_fill_all'), 'error');
       if (file.type !== 'application/pdf') return toast(t('t_pdf_only'), 'error');
       if (file.size > 50 * 1024 * 1024) return toast(t('t_too_big'), 'error');
       if (ref.trim().length > 50) return toast(t('t_ref_long'), 'error');
       if (title.trim().length > 200) return toast(t('t_title_long'), 'error');
       if (duration.length > 100) return toast(t('t_duration_long'), 'error');
+      if (isNaN(new Date(opening).getTime())) return toast(t('t_bad_date'), 'error');
+
       // التحقق من أن الرقم غير مستخدم
       const dup = await DB.from('tenders').select('id').eq('reference', ref.trim()).maybeSingle();
       if (dup.data) return toast(t('t_dup_ref', { ref: ref.trim() }), 'error', 5000);
@@ -335,7 +337,7 @@
               reference: ref.trim(),
               title: title.trim(),
               duration: duration.trim(),
-              opening_date: null,
+              opening_date: officeWallToISO(opening) || new Date(opening).toISOString(),
             },
           });
           if (fin.error) throw fin.error;
@@ -362,7 +364,7 @@
             reference: ref.trim(),
             title: title.trim(),
             duration: duration.trim() || null,
-            opening_date: null,
+            opening_date: new Date(opening).toISOString(),
             pdf_path: pdfPath,
             pdf_source: 'supabase',
             status: 'published',
@@ -382,7 +384,7 @@
           reference: ref.trim(),
           title: title.trim(),
           duration: duration.trim() || null,
-          opening_date: null,
+          opening_date: new Date(opening).toISOString(),
         });
       } catch (err) {
         console.error(err);
@@ -437,6 +439,9 @@
     if (kindInput) kindInput.checked = true;
     $('e-title').value = tt.title || '';
     $('e-duration').value = tt.duration || '';
+    const d = new Date(tt.opening_date);
+    if (isNaN(d.getTime())) $('e-opening').value = '';
+    else $('e-opening').value = isoToOfficeWall(tt.opening_date);
     openModal('edit-modal');
   }
 
@@ -449,16 +454,18 @@
       const id = $('e-id').value;
       const title = val('e-title').trim();
       const duration = val('e-duration').trim();
+      const opening = val('e-opening');
       const kindEl = document.querySelector('input[name="e-kind"]:checked');
       const kind = kindEl ? kindEl.value : 'consultation';
-      if (!id || !title) return toast(t('t_fill_all'), 'error');
+      if (!id || !title || !opening) return toast(t('t_fill_all'), 'error');
       if (title.length > 200) return toast(t('t_title_long'), 'error');
       if (duration.length > 100) return toast(t('t_duration_long'), 'error');
+      if (isNaN(new Date(opening).getTime())) return toast(t('t_bad_date'), 'error');
       const btn = $('edit-btn');
       setBusy(btn, true, t('busy_edit'));
       try {
         const { error } = await DB.from('tenders')
-          .update({ kind, title, duration })
+          .update({ kind, title, duration, opening_date: officeWallToISO(opening) || new Date(opening).toISOString() })
           .eq('id', id);
         if (error) throw error;
         toast(t('t_edit_saved'), 'success');
@@ -519,11 +526,11 @@
       statusBadge(tt.status) +
       '</div>' +
       '<div class="mt-3 grid grid-cols-2 gap-2 text-sm">' +
-      (tt.opening_date ? '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
+      '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
       '<div class="text-xs text-slate-400">' + t('card_opening_l') + '</div>' +
       '<div class="text-slate-700">' + fmtDate(tt.opening_date, true) + '</div>' +
       (tt.opened_at ? '<div class="text-xs text-slate-400">' + t('card_opened_at', { d: fmtDate(tt.opened_at, true) }) + '</div>' : '') +
-      '</div>' : '') +
+      '</div>' +
       '<div class="bg-slate-50 rounded-lg px-3 py-2">' +
       '<div class="text-xs text-slate-400">' + t('card_downloads_l') + '</div>' +
       '<div class="text-slate-700 font-bold">' + dl + '</div>' +
@@ -553,8 +560,7 @@
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
     const tl = $('tenders-list');
-    const ol = $('opening-list');
-    if (!((tl && tl.contains(btn)) || (ol && ol.contains(btn)))) return;
+    if (!tl || !tl.contains(btn)) return;
     if (btn.dataset.act === 'open' && !canOpen()) return;
     if (btn.dataset.act === 'edit' && !canOpen()) return;
     if ((btn.dataset.act === 'replace' || btn.dataset.act === 'delete') && !isAdmin()) return;
@@ -569,91 +575,6 @@
       else if (btn.dataset.act === 'delete') askDelete(data);
     });
   });
-
-  /* ---------- لجنة فتح الأظرفة ---------- */
-
-  A.loadOpening = async function () {
-    const list = $('opening-list');
-    if (!list) return;
-    list.innerHTML = '<div class="text-center text-slate-400 text-sm py-6">' + t('loading') + '</div>';
-    try {
-      const [tRes, uRes] = await Promise.all([
-        DB.from('tenders').select('*, downloads(count)').order('opening_date', { ascending: true }),
-        DB.functions.invoke('manage-users', { body: { action: 'list' } }),
-      ]);
-      const { data, error } = tRes;
-      if (error) throw error;
-
-      const userName = {};
-      const users = (uRes.data && uRes.data.users) || [];
-      users.forEach((u) => { userName[u.id] = u.full_name || u.email; });
-
-      const now = Date.now();
-      const rows = data || [];
-      const ready = rows.filter((t) => t.status === 'published' && new Date(t.opening_date).getTime() <= now);
-      const upcoming = rows.filter((t) => t.status === 'published' && new Date(t.opening_date).getTime() > now);
-      const opened = rows
-        .filter((t) => t.status === 'opened')
-        .sort((a, b) => new Date(b.opened_at) - new Date(a.opened_at))
-        .slice(0, 10);
-
-      const dl = (t) => (t.downloads && t.downloads[0] && t.downloads[0].count) || 0;
-
-      const card = (tt, isReady) => (
-        '<div class="bg-white rounded-2xl shadow-sm border p-4 ' + (isReady ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200') + '">' +
-        '<div class="flex items-start justify-between gap-3">' +
-        '<div class="min-w-0">' +
-        '<div class="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">' + esc(tt.reference) +
-        '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ' + (tt.kind === 'tender' ? 'bg-indigo-50 text-indigo-700' : 'bg-teal-50 text-teal-700') + '">' + kindLabel(tt.kind) + '</span>' +
-        '</div>' +
-        '<div class="text-sm text-slate-600 mt-0.5">' + esc(tt.title) + '</div>' +
-        '<div class="text-xs text-slate-400 mt-1">' + t('op_time', { d: fmtDate(tt.opening_date, true) }) +
-        (isReady ? t('op_now') : '') + '</div>' +
-        '</div>' +
-        '<div class="text-center shrink-0">' +
-        '<div class="text-xl font-black text-slate-700">' + dl(tt) + '</div>' +
-        '<div class="text-[10px] text-slate-400">' + t('op_dl_word') + '</div>' +
-        '</div>' +
-        '</div>' +
-        '<div class="mt-3 grid grid-cols-2 gap-2">' +
-        '<button data-act="direct" data-id="' + tt.id + '" class="w-full btn-secondary">' + t('btn_direct_dl') + '</button>' +
-        '<button data-act="downloads" data-id="' + tt.id + '" class="w-full btn-secondary">' + t('op_btn_dl', { n: dl(tt) }) + '</button>' +
-        (isReady && canOpen()
-          ? '<button data-act="open" data-id="' + tt.id + '" class="w-full btn-danger">' + t('btn_open') + '</button>'
-          : '<span class="btn-secondary w-full opacity-60 flex items-center justify-center">' + t('op_btn_wait') + '</span>') +
-        '</div>' +
-        '</div>'
-      );
-
-      const openedRow = (tt) => (
-        '<div class="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between gap-3">' +
-        '<div class="min-w-0">' +
-        '<div class="text-sm font-bold text-slate-700">' + esc(tt.reference) + ' — ' + esc(tt.title) + '</div>' +
-        '<div class="text-xs text-slate-400 mt-0.5">' + t('op_opened_at', { d: fmtDate(tt.opened_at, true) }) +
-        (tt.opened_by ? t('op_by', { n: esc(userName[tt.opened_by] || t('op_unknown')) }) : '') + '</div>' +
-        '</div>' +
-        '<button data-act="downloads" data-id="' + tt.id + '" class="text-xs btn-secondary shrink-0">👥 ' + dl(tt) + '</button>' +
-        '</div>'
-      );
-
-      let html = '';
-      if (ready.length) {
-        html += '<div class="text-xs font-bold text-amber-700 mb-1">' + t('op_ready') + '</div>' + ready.map((tt) => card(tt, true)).join('');
-      }
-      if (upcoming.length) {
-        html += '<div class="text-xs font-bold text-slate-400 mt-4 mb-1">' + t('op_upcoming') + '</div>' + upcoming.map((tt) => card(tt, false)).join('');
-      }
-      if (opened.length) {
-        html += '<div class="text-xs font-bold text-slate-400 mt-4 mb-1">' + t('op_opened') + '</div>' + opened.map(openedRow).join('');
-      }
-      if (!ready.length && !upcoming.length && !opened.length) {
-        html = emptyState(t('empty_opening_t'), t('empty_opening_s'));
-      }
-      list.innerHTML = html;
-    } catch (err) {
-      list.innerHTML = errorState(err);
-    }
-  };
 
   /* ---------- بطاقة QR ---------- */
 

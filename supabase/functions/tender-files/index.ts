@@ -213,12 +213,12 @@ Deno.serve(async (req) => {
       const title = String(body.title || '').trim();
       const duration = String(body.duration || '').trim() || null;
       const opening = String(body.opening_date || '');
-      if (!tenderId || !reference || !title) return json({ error: 'missing_fields' }, 400);
+      if (!tenderId || !reference || !title || !opening) return json({ error: 'missing_fields' }, 400);
       // حدود الطول (نفس قيود الواجهة) + صلاحية التاريخ
       if (reference.length > 50 || title.length > 200 || (duration && duration.length > 100)) {
         return json({ error: 'too_long' }, 400);
       }
-      if (opening && isNaN(new Date(opening).getTime())) return json({ error: 'bad_date' }, 400);
+      if (isNaN(new Date(opening).getTime())) return json({ error: 'bad_date' }, 400);
 
       const cfg = await r2Config(db);
       const key = tenderId + '.pdf';
@@ -234,7 +234,7 @@ Deno.serve(async (req) => {
         reference,
         title,
         duration,
-        opening_date: opening ? new Date(opening).toISOString() : null,
+        opening_date: new Date(opening).toISOString(),
         pdf_path: key,
         pdf_source: 'r2',
         status: 'published',
