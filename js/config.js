@@ -4,11 +4,11 @@
 //  (ملف .env.example مرجعي فقط — الموقع الساكن يقرأ من هنا)
 // ============================================================
 window.TENDER_CONFIG = {
-  // عنوان Supabase
-  SUPABASE_URL: "https://oxlrqapdxlivjzgrupxd.supabase.co",
+  // عنوان Supabase — مشروع كلية العلوم و التكنولوجيا (قيد الإعداد)
+  SUPABASE_URL: "",
   // مفتاح publishable (آمن للاستخدام في المتصفح)
-  SUPABASE_ANON_KEY: "sb_publishable_eo_EaZoxJ7FnfzKkcbEbGQ_iyD0wmos",
+  SUPABASE_ANON_KEY: "",
   // رابط الموقع العام — يُولَّد منه روابط QR دائمًا
   // (المتعامل يمسح QR → يفتح هذا الموقع العام، لا موقعك المحلي)
-  PUBLIC_BASE_URL: "https://uatbb.github.io/bm",
+  PUBLIC_BASE_URL: "https://univ-atbb.github.io/univatbb",
 };
