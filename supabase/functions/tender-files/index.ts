@@ -166,10 +166,11 @@ Deno.serve(async (req) => {
   const { data: userData, error: userErr } = await db.auth.getUser(token);
   if (userErr || !userData || !userData.user) return json({ error: 'unauthorized' }, 401);
   const userId = userData.user.id;
+  // مغلق افتراضيًا: الدور من app_metadata (خادمي) — لا دور = صلاحيات معدومة
   const callerRole: string = (() => {
     const u: any = userData.user;
-    const r = (u && ((u.app_metadata && u.app_metadata.role) || (u.user_metadata && u.user_metadata.role))) || '';
-    return r === 'committee' || r === 'opener' ? r : 'admin';
+    const r = String((u && u.app_metadata && u.app_metadata.role) || '');
+    return r === 'admin' || r === 'committee' || r === 'opener' ? r : '';
   })();
 
   let body: any;
@@ -190,7 +191,8 @@ Deno.serve(async (req) => {
     ) {
       return json({ error: 'forbidden' }, 403);
     }
-    if (action === 'open-tender' && callerRole === 'committee') {
+    // فتح الأظرفة: إداري + لجنة فتح فقط (بصيغة صريحة — لا دور = مرفوض)
+    if (action === 'open-tender' && callerRole !== 'admin' && callerRole !== 'opener') {
       return json({ error: 'forbidden' }, 403);
     }
 
@@ -212,6 +214,11 @@ Deno.serve(async (req) => {
       const duration = String(body.duration || '').trim() || null;
       const opening = String(body.opening_date || '');
       if (!tenderId || !reference || !title || !opening) return json({ error: 'missing_fields' }, 400);
+      // حدود الطول (نفس قيود الواجهة) + صلاحية التاريخ
+      if (reference.length > 50 || title.length > 200 || (duration && duration.length > 100)) {
+        return json({ error: 'too_long' }, 400);
+      }
+      if (isNaN(new Date(opening).getTime())) return json({ error: 'bad_date' }, 400);
 
       const cfg = await r2Config(db);
       const key = tenderId + '.pdf';

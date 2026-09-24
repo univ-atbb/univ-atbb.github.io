@@ -224,6 +224,14 @@ Deno.serve(async (req) => {
     return json({ error: 'missing_fields' }, 400);
   }
 
+  // تحقق من المدخلات (طول + تنسيق) — لمنع الإسهاب والبيانات الفاسدة
+  if (!noLog) {
+    if (company.length > 120 || phone.length > 30 || email.length > 120) return json({ error: 'bad_request' }, 400);
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 8 || phoneDigits.length > 15) return json({ error: 'bad_phone' }, 400);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'bad_email' }, 400);
+  }
+
   // 1) تحقق: الاستشارة موجودة ومنشورة
   const { data: tender, error: tErr } = await db
     .from('tenders')
@@ -242,6 +250,19 @@ Deno.serve(async (req) => {
         req.headers.get('x-forwarded-for') ||
         '').split(',')[0].trim() || null;
     const ua = (req.headers.get('user-agent') || '').slice(0, 500);
+
+    // تحييد إساءة الاستخدام: حد 5 تحميلات/ساعة لكل عنوان IP
+    if (ip) {
+      const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+      const { count: recent, error: cntErr } = await db
+        .from('downloads')
+        .select('id', { count: 'exact', head: true })
+        .eq('ip_address', ip)
+        .gte('downloaded_at', hourAgo);
+      if (!cntErr && recent !== null && recent >= 5) {
+        return json({ error: 'rate_limited' }, 429);
+      }
+    }
 
     // تطبيع الهاتف: أرقام فقط، بدون 213 وبدون الصفر الأول (آخر 9 خانات)
     const norm = (p: string) => {

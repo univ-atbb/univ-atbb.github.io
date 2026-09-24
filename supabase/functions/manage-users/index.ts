@@ -41,8 +41,9 @@ Deno.serve(async (req) => {
 
   const action = String(body.action || '');
 
-  // قائمة الحسابات
+  // قائمة الحسابات — للإداري ولجنة فتح الأظرفة فقط (لا للعرض فقط)
   if (action === 'list') {
+    if (callerRole !== 'admin' && callerRole !== 'opener') return json({ error: 'forbidden' }, 403);
     const { data, error } = await db.auth.admin.listUsers();
     if (error) return json({ error: error.message }, 500);
     const users = (data.users || []).map((u) => ({
@@ -129,8 +130,9 @@ function parseRole(v: unknown, fallback = ''): string {
   return fallback || 'admin';
 }
 
-// قراءة دور مستخدم: app_metadata أولًا (خادمي — لا يمسّه المستخدم)، ثم user_metadata (فترة الانتقال)
+// قراءة دور مستخدم: app_metadata فقط (خادمي — لا يمسّه المستخدم).
+// مغلق افتراضيًا: لا دور = صلاحيات معدومة (لم يعد "لا دور = admin")
 function roleOf(u: any): string {
-  const r = (u && ((u.app_metadata && u.app_metadata.role) || (u.user_metadata && u.user_metadata.role))) || '';
-  return parseRole(r, 'admin');
+  const r = (u && u.app_metadata && u.app_metadata.role) || '';
+  return r === 'admin' || r === 'opener' || r === 'committee' ? r : '';
 }
